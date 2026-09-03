@@ -78,7 +78,7 @@ cp "<SKILL_ROOT>/使用指南.md" "<PROJECT_ROOT>/使用指南.md"
 
 1. 可运行的 Python（`.py`）或 MATLAB（`.m`）代码；可同时交付两种语言。
 2. 代码运行结果表格，如 `.csv`、题目要求的 `.xlsx`。
-3. 原始数据图、模型运行过程图、模型最终结果图每类至少 3 张候选图，合计至少 9 张；还必须覆盖题目全部子问题，每个子问题在三类中各至少 1 张。文件名使用 `raw_q1_*`、`process_q1_*`、`result_q1_*` 等格式，不设上限。相同内容的 SVG、PNG 和灰度预览按 1 张逻辑图计数。
+3. 原始数据图、模型运行过程图、模型最终结果图每类至少 3 张候选图，合计至少 9 张；还必须覆盖题目全部子问题，每个子问题在三类中各至少 1 张。文件名使用 `raw_q1_*`、`process_q1_*`、`result_q1_*` 等格式，不设上限。相同内容的 SVG、PNG 和灰度预览按 1 张逻辑图计数。论文所需示意图（技术路线图、思路/算法流程图、模型机制示意）用 `tools/schematic` 工具产出，以 `diagram_qN_*`（全文级 `diagram_all_*`）命名放入同一 `figures/` 目录，保留可编辑 `.drawio` 源及 PNG+矢量导出件；示意图计入论文正式图但只补充不替代，不占用三类图配额。
 4. `results/复现清单.json`，含随机种子、输入文件 SHA-256、运行时和依赖版本、关键参数、唯一复现命令。
 
 ### 论文手
@@ -118,6 +118,8 @@ cp "<SKILL_ROOT>/使用指南.md" "<PROJECT_ROOT>/使用指南.md"
 | 读取题目 PDF | `tools/pdf/SKILL.md` |
 | 处理 Excel | `tools/xlsx/SKILL.md` |
 | 画图 | `tools/figure/SKILL.md` |
+| 画示意图、技术路线图、思路/算法流程图 | `tools/schematic/SKILL.md` |
+| 高阶图型（云雨图、泰勒图、SHAP 组合图等） | `tools/figure/SKILL.md` 的模板目录（`tools/figure/scripts/templates/`），按 CSV 数据契约用真实数据出图 |
 | 生成 Word 论文 | `tools/docx/SKILL.md` |
 | 生成 LaTeX 论文 | `tools/latex/SKILL.md` |
 | LaTeX 论文转 Word | `tools/docx/SKILL.md` |

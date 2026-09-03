@@ -34,6 +34,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import tempfile
 from typing import Iterable
 
 import matplotlib.pyplot as plt
@@ -57,9 +58,10 @@ def export_figure(
     dpi: int = 300,
     size_inches: tuple[float, float] | None = None,
     grayscale_preview: bool = False,
-    tight: bool = True,
+    tight: bool = False,
     pad_inches: float = 0.05,
     transparent: bool = False,
+    preflight: bool = True,
 ) -> list[str]:
     """
     Export a matplotlib Figure to one or more formats at exact final size.
@@ -73,13 +75,35 @@ def export_figure(
         size_inches: (width, height) 英寸；指定后会 fig.set_size_inches() 强制
             最终尺寸。强烈建议传入——保证导出后不必在 Word/LaTeX 里二次缩放。
         grayscale_preview: 额外生成一张 _grayscale.png 供色盲安全检查。
-        tight: 是否走 bbox_inches='tight'（裁掉留白）。
+        tight: 是否走 bbox_inches='tight'（裁掉留白）。默认 False——
+            保持 figsize 精确尺寸，避免插入论文后二次缩放。
+            仅当 audit_layout 报告留白异常且无法通过调整布局解决时才启用；
+            启用后必须用 check_figure 核对实际尺寸。
         pad_inches: tight 模式下保留的边距（英寸）。
         transparent: 透明背景（PPT/海报可能需要）。
+        preflight: 导出前自动运行 visual_qa.audit_layout + audit_design。
+            默认 True——发现 FAIL 级问题（缺字/乱码）直接 raise，
+            阻断错误产物落盘。设 False 可跳过（如调试阶段）。
 
     Returns:
         实际写出的文件路径列表。
+
+    Raises:
+        ValueError: preflight=True 且 audit 发现 FAIL 级问题时。
     """
+    if preflight:
+        import visual_qa
+        issues = visual_qa.audit_layout(fig) + visual_qa.audit_design(fig)
+        fail_issues = [msg for sev, msg in issues if sev == "FAIL"]
+        if fail_issues:
+            raise ValueError(
+                "导出前预检未通过（FAIL）：" + "；".join(fail_issues)
+            )
+        warn_issues = [msg for sev, msg in issues if sev == "WARN"]
+        if warn_issues:
+            print(f"[scipilot-figure-skill] 预检 WARN（不阻断导出）："
+                  f"{'；'.join(warn_issues)}", file=sys.stderr)
+
     if formats is None:
         formats = ("pdf", "svg", "png")
     formats = [f.lower().lstrip(".") for f in formats]
@@ -119,13 +143,14 @@ def export_figure(
         print(f"[scipilot-figure-skill] wrote {path}")
 
     if grayscale_preview:
-        gray_path = _grayscale_from(fig, basename, dpi=dpi)
+        existing_png = f"{basename}.png" if "png" in formats else None
+        gray_path = _grayscale_from(fig, basename, dpi=dpi, existing_png=existing_png)
         if gray_path:
             saved.append(gray_path)
     return saved
 
 
-def _grayscale_from(fig, basename: str, dpi: int) -> str | None:
+def _grayscale_from(fig, basename: str, dpi: int, existing_png: str | None = None) -> str | None:
     """
     导出灰度预览版用于色盲安全检查。
     优先用 PIL 转灰度；找不到 PIL 时退化为重新画图（关闭颜色）。
@@ -137,12 +162,19 @@ def _grayscale_from(fig, basename: str, dpi: int) -> str | None:
               "grayscale preview skipped.", file=sys.stderr)
         return None
 
-    png_path = f"{basename}.png"
-    _ensure_parent(png_path)
-    fig.savefig(png_path, dpi=dpi, bbox_inches="tight")
-
     gray_path = f"{basename}_grayscale.png"
-    Image.open(png_path).convert("L").save(gray_path)
+    if existing_png and os.path.exists(existing_png):
+        # 复用本次已导出的 PNG，避免重复渲染
+        Image.open(existing_png).convert("L").save(gray_path)
+    else:
+        # formats 不含 png 时：渲染到临时文件再转灰度，不在产物目录多写一张 png
+        fd, tmp_png = tempfile.mkstemp(suffix=".png")
+        os.close(fd)
+        try:
+            fig.savefig(tmp_png, dpi=dpi, bbox_inches="tight")
+            Image.open(tmp_png).convert("L").save(gray_path)
+        finally:
+            os.remove(tmp_png)
     print(f"[scipilot-figure-skill] wrote {gray_path} (grayscale preview)")
     return gray_path
 

@@ -20,14 +20,7 @@ def _is_math_modeling_skill_root(path: Path) -> bool:
     return (
         (path / "SKILL.md").is_file()
         and (path / "VERSION").is_file()
-        and (
-            path
-            / "references"
-            / "roles"
-            / "编程手"
-            / "scripts"
-            / "plot_style.py"
-        ).is_file()
+        and (path / "tools" / "figure" / "scripts" / "style_constants.py").is_file()
     )
 
 
@@ -168,40 +161,6 @@ def publication_subplots(
 
 
 # ---------------------------------------------------------------------------
-# 面板标签
-# ---------------------------------------------------------------------------
-
-from collections.abc import Iterable as _Iterable
-
-
-def add_panel_labels(
-    axes: _Iterable,
-    labels: Sequence[str] | None = None,
-    *,
-    x_offset_pt: float = -8.0,
-    y_offset_pt: float = 1.0,
-) -> None:
-    """在各面板左上外侧添加小写粗体编号。"""
-    axes_list = list(axes)
-    panel_labels = list(labels) if labels is not None else [chr(97 + i) for i in range(len(axes_list))]
-    if len(panel_labels) != len(axes_list):
-        raise ValueError("labels 数量必须与 axes 数量一致")
-    for axis, label in zip(axes_list, panel_labels):
-        axis.annotate(
-            label,
-            xy=(0, 1),
-            xycoords="axes fraction",
-            xytext=(x_offset_pt, y_offset_pt),
-            textcoords="offset points",
-            ha="right",
-            va="bottom",
-            fontsize=8,
-            fontweight="bold",
-            annotation_clip=False,
-        )
-
-
-# ---------------------------------------------------------------------------
 # 路径安全
 # ---------------------------------------------------------------------------
 
@@ -223,7 +182,6 @@ __all__ = [
     "PALETTE",
     "WIDTHS_IN",
     "SKILL_ROOT",
-    "add_panel_labels",
     "choose_font",
     "figure_size",
     "publication_subplots",

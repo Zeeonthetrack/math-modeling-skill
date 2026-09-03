@@ -298,7 +298,7 @@ def profile_data(source, group_cols: list[str] | None = None) -> dict:
     主入口。读入数据并返回结构化的分析报告（dict）。
 
     Args:
-        source: 文件路径（csv/xlsx）、pd.DataFrame、或字符串内容。
+        source: 文件路径（csv/tsv/xlsx，须真实存在）或 pd.DataFrame。
         group_cols: 分组列名列表（嵌套/交叉），用于分组样本量统计。
     Returns:
         dict 包含 keys: n_rows / n_cols / columns / correlation /

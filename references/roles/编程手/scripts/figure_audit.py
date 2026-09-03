@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""依赖标准库的论文图文件审计器。"""
+"""依赖标准库的论文图文件审计器。
+
+数据图（raw_/process_/result_ 前缀）：SVG+PNG 成对、PNG ≥ min_dpi、SVG 含可编辑文本。
+示意图（diagram_ 前缀，可选类别）：PNG 与矢量（SVG 或 PDF）成对；PNG 的 DPI 元数据
+缺失或偏低只告警不判失败——示意图印刷以矢量件为准，PNG 用于视觉自检，清晰度由人工
+在论文预计尺寸下核对。
+"""
 
 from __future__ import annotations
 
@@ -14,6 +20,7 @@ from pathlib import Path
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 REQUIRED_CATEGORIES = ("raw_", "process_", "result_")
+DIAGRAM_PREFIX = "diagram_"
 
 
 def _png_metadata(path: Path) -> dict:
@@ -55,7 +62,10 @@ def _png_metadata(path: Path) -> dict:
 def _svg_metadata(path: Path) -> dict:
     root = ET.parse(path).getroot()
     elements = list(root.iter())
-    text_count = sum(element.tag.rsplit("}", 1)[-1] == "text" for element in elements)
+    # matplotlib 输出 <text>；drawio 导出的 SVG 可能用 <foreignObject> 包裹 HTML 文本，两者都算可编辑
+    text_count = sum(
+        element.tag.rsplit("}", 1)[-1] in {"text", "foreignObject"} for element in elements
+    )
     embedded_raster = any(
         element.tag.rsplit("}", 1)[-1] == "image"
         and "base64" in " ".join(str(value) for value in element.attrib.values()).lower()
@@ -93,11 +103,21 @@ def audit_figure_directory(
     by_stem: dict[str, set[str]] = {}
     for path in candidates:
         suffix = path.suffix.lower()
+        # 灰度预览是 export_figure(grayscale_preview=True) 的派生自检产物，
+        # 不作独立图审计（缺 DPI 元数据 / 无 SVG 配对均为预期）
+        if path.stem.endswith("_grayscale"):
+            continue
         if suffix in {".jpg", ".jpeg"}:
             issues.append({"severity": "FAIL", "message": f"数据图禁止使用 JPEG：{path.name}"})
-        if suffix not in {".svg", ".png"}:
+        is_diagram = path.stem.startswith(DIAGRAM_PREFIX)
+        allowed_suffixes = {".svg", ".png", ".pdf"} if is_diagram else {".svg", ".png"}
+        if suffix not in allowed_suffixes:
             continue
         by_stem.setdefault(path.stem, set()).add(suffix)
+        if suffix == ".pdf":
+            # drawio 导出的矢量 PDF 只登记并参与配对检查，不做深检
+            files[path.name] = {"format": "pdf"}
+            continue
         try:
             metadata = _png_metadata(path) if suffix == ".png" else _svg_metadata(path)
         except (OSError, ValueError, ET.ParseError) as exc:
@@ -107,15 +127,45 @@ def audit_figure_directory(
         if suffix == ".png":
             dpi_values = [metadata["dpi_x"], metadata["dpi_y"]]
             if any(value is None for value in dpi_values):
-                issues.append({"severity": "FAIL", "message": f"{path.name} 缺少 DPI 元数据"})
+                if is_diagram:
+                    issues.append({
+                        "severity": "WARN",
+                        "message": (
+                            f"示意图 {path.name} 缺少 DPI 元数据；印刷以矢量件为准，"
+                            "PNG 仅作自检，请在论文预计尺寸下人工核对清晰度"
+                        ),
+                    })
+                else:
+                    issues.append({"severity": "FAIL", "message": f"{path.name} 缺少 DPI 元数据"})
             elif min(dpi_values) + 0.5 < min_dpi:
-                issues.append({"severity": "FAIL", "message": f"{path.name} 低于 {min_dpi} DPI"})
+                if is_diagram:
+                    issues.append({
+                        "severity": "WARN",
+                        "message": (
+                            f"示意图 {path.name} DPI 元数据为 {min(dpi_values):.0f}，低于 {min_dpi}；"
+                            "印刷以矢量件为准，如需位图入文请提高导出倍率（如 drawio -s 3）后复核"
+                        ),
+                    })
+                else:
+                    issues.append({"severity": "FAIL", "message": f"{path.name} 低于 {min_dpi} DPI"})
         elif metadata["text_count"] == 0:
             issues.append({"severity": "FAIL", "message": f"{path.name} 没有可编辑文本节点"})
         elif metadata["embedded_raster"]:
             issues.append({"severity": "WARN", "message": f"{path.name} 含嵌入位图，请确认确有必要"})
 
     for stem, suffixes in by_stem.items():
+        if stem.startswith(DIAGRAM_PREFIX):
+            missing_parts = []
+            if ".png" not in suffixes:
+                missing_parts.append("PNG")
+            if not ({".svg", ".pdf"} & suffixes):
+                missing_parts.append("矢量格式（SVG 或 PDF）")
+            if missing_parts:
+                issues.append({
+                    "severity": "FAIL",
+                    "message": f"示意图 {stem} 缺少配对格式：{', '.join(missing_parts)}",
+                })
+            continue
         missing = {".svg", ".png"} - suffixes
         if missing:
             issues.append({
@@ -153,12 +203,15 @@ def audit_figure_directory(
         "directory": str(directory),
         "questions": list(normalized_questions),
         "files": files,
+        "diagram_count": sum(stem.startswith(DIAGRAM_PREFIX) for stem in by_stem),
         "issues": issues,
     }
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="检查三类候选图数量、SVG 可编辑文本和 PNG DPI")
+    parser = argparse.ArgumentParser(
+        description="检查三类候选图数量、SVG 可编辑文本、PNG DPI 和示意图（diagram_ 前缀）配对"
+    )
     parser.add_argument("figures_dir", help="PROJECT_ROOT 下的 figures 目录")
     parser.add_argument("--min-dpi", type=int, default=300)
     parser.add_argument("--min-per-category", type=int, default=3, help="每类逻辑候选图最低数量")

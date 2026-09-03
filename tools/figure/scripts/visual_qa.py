@@ -19,6 +19,12 @@ scipilot-figure-skill :: visual_qa.py
     告警通道，任一报 "missing from font" 即判定成图会出方框/乱码。
   * **文字越界裁切**（WARN）：Text 的 window_extent 超出画布边界。
   * **刻度标签重叠**（WARN）：相邻 tick label 的包围盒水平/垂直相交。
+- ``audit_design(fig)`` —— 返回 ``[(severity, msg), ...]``：
+  * **标题过长**（WARN）：面板内标题超过 28 字符或含换行。
+  * **图例超 5 项**（WARN）：单轴或整图共享图例条目过多。
+  * **逐点标记**（WARN）：>25 个数据点仍逐点绘制 marker。
+  * **柱状图未从零开始**（WARN）：纵轴截断且未改用点图/区间图。
+  * **2×2 矩阵冗余 colorbar**（WARN）：已标数值的小矩阵仍加 colorbar。
 
 severity 约定与 check_figure.py 保持一致：INFO < WARN < FAIL。
 
@@ -280,6 +286,123 @@ def render_preview(fig_or_path, out_png: str = "_preview.png",
         doc.close()
         return out_png
     raise RuntimeError(f"不支持从 .{ext} 生成预览；请传 Figure 对象或位图。")
+
+
+def audit_design(fig) -> list[tuple[str, str]]:
+    """
+    检查可由对象结构确定的高风险设计问题。返回 [(severity, msg), ...]。
+
+    检测项：
+        1. 标题过长（WARN）——面板内标题超过 28 字符或含换行。
+        2. 图例超 5 项（WARN）——单轴或整图共享图例条目过多。
+        3. 逐点标记（WARN）——>25 个数据点仍逐点绘制 marker。
+        4. 柱状图未从零开始（WARN）——纵轴截断且未改用点图/区间图。
+        5. 2×2 矩阵冗余 colorbar（WARN）——已标数值的小矩阵仍加 colorbar。
+
+    非破坏性：只读取对象结构，不修改 fig 内容。
+    """
+    from collections.abc import Iterable as _Iterable
+    from unicodedata import east_asian_width
+
+    issues: list[tuple[str, str]] = []
+
+    def _display_width(text: str) -> int:
+        return sum(
+            2 if east_asian_width(character) in {"W", "F"} else 1
+            for character in text
+        )
+
+    def _is_colorbar_axis(axis) -> bool:
+        return axis.get_label() == "<colorbar>" or hasattr(axis, "_colorbar")
+
+    data_axes = [axis for axis in fig.axes if not _is_colorbar_axis(axis)]
+    colorbar_axes = [axis for axis in fig.axes if _is_colorbar_axis(axis)]
+    colorbar_mappables = {
+        id(axis._colorbar.mappable)
+        for axis in colorbar_axes
+        if hasattr(axis, "_colorbar") and getattr(axis._colorbar, "mappable", None) is not None
+    }
+
+    for index, axis in enumerate(data_axes, start=1):
+        # 1. 标题过长
+        for location in ("left", "center", "right"):
+            title = axis.get_title(loc=location).strip()
+            title_lines = title.splitlines()
+            if title and (
+                len(title_lines) > 1
+                or max(_display_width(line) for line in title_lines) > 28
+            ):
+                issues.append((
+                    "WARN",
+                    f"第 {index} 个坐标轴标题过长；完整论述应移到图注，面板内只保留短标题"
+                ))
+                break
+
+        # 2. 图例超 5 项
+        legend = axis.get_legend()
+        if legend is not None and len(legend.get_texts()) > 5:
+            issues.append((
+                "WARN",
+                f"第 {index} 个坐标轴图例超过 5 项；应直接标注、改为共享图例或拆分证据"
+            ))
+
+        # 3. 逐点标记
+        for line in axis.lines:
+            marker = line.get_marker()
+            if marker in {None, "", " ", "None", "none"}:
+                continue
+            point_count = len(line.get_xdata(orig=False))
+            if point_count > 25 and line.get_markevery() is None:
+                issues.append((
+                    "WARN",
+                    f"第 {index} 个坐标轴对 {point_count} 个点逐点绘制标记；"
+                    "应取消标记或设置 markevery"
+                ))
+                break
+
+        # 4. 柱状图未从零开始
+        from matplotlib.container import BarContainer
+        for container in axis.containers:
+            if not isinstance(container, BarContainer) or not container.patches:
+                continue
+            if container.orientation == "vertical":
+                lower, upper = axis.get_ylim()
+            else:
+                lower, upper = axis.get_xlim()
+            tolerance = max(abs(upper - lower), 1.0) * 1e-9
+            if lower > tolerance or upper < -tolerance:
+                issues.append((
+                    "WARN",
+                    f"第 {index} 个坐标轴的柱状图未从零开始；"
+                    "若必须截断，应改用点图/区间图并显式说明"
+                ))
+                break
+
+        # 5. 2×2 矩阵冗余 colorbar
+        for image in axis.images:
+            values = image.get_array()
+            if (
+                getattr(values, "size", 0) <= 4
+                and len(axis.texts) >= getattr(values, "size", 0)
+                and id(image) in colorbar_mappables
+            ):
+                issues.append((
+                    "WARN",
+                    f"第 {index} 个坐标轴是已标数值的 2×2 小矩阵，"
+                    "不应再使用冗余 colorbar"
+                ))
+                break
+
+    # 整图共享图例超 5 项
+    for legend in fig.legends:
+        if len(legend.get_texts()) > 5:
+            issues.append((
+                "WARN",
+                "整图共享图例超过 5 项；应直接标注、拆分证据或突出核心系列"
+            ))
+            break
+
+    return issues
 
 
 def print_report(issues: list[tuple[str, str]]) -> str:

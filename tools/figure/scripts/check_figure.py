@@ -37,6 +37,23 @@ def _ext(path: str) -> str:
     return os.path.splitext(path)[1].lower().lstrip(".")
 
 
+AUDIT_EXTS = VECTOR_FORMATS | RASTER_OK_FORMATS | JPEG_FORMATS
+
+
+def _expand_directory(dir_path: str) -> list[str]:
+    """目录参数支持：递归收集其中的图片文件（排序保证结果稳定）。"""
+    found: list[str] = []
+    for root, _dirs, files in os.walk(dir_path):
+        for name in files:
+            if _ext(name) in AUDIT_EXTS:
+                found.append(os.path.join(root, name))
+    found.sort()
+    if not found:
+        print(f"[check_figure] WARN: 目录 {dir_path} 中未发现可审计的图片文件"
+              f"（{'/'.join(sorted(AUDIT_EXTS))}）。")
+    return found
+
+
 def _check_raster(path: str, ext: str, min_dpi: int,
                   target_inches: tuple[float, float] | None) -> tuple[list, dict]:
     """位图（PNG/TIFF/JPEG）合规性检查。"""
@@ -230,7 +247,7 @@ def print_report(path: str, issues: list, info: dict) -> str:
 
 def _cli() -> int:
     p = argparse.ArgumentParser(description="scipilot-figure-skill compliance checker")
-    p.add_argument("paths", nargs="+", help="图文件路径，可用 glob")
+    p.add_argument("paths", nargs="+", help="图文件路径、glob 模式或目录（目录递归展开图片）")
     p.add_argument("--min-dpi", type=int, default=300)
     p.add_argument("--width-in", type=float, help="目标宽度(英寸)")
     p.add_argument("--height-in", type=float, help="目标高度(英寸)")
@@ -239,13 +256,23 @@ def _cli() -> int:
     args = p.parse_args()
 
     target = None
-    if args.width_in and args.height_in:
+    if args.width_in is not None and args.height_in is not None:
         target = (args.width_in, args.height_in)
+    elif args.width_in is not None or args.height_in is not None:
+        print("[check_figure] WARN: --width-in 与 --height-in 必须成对提供才生效；"
+              "本次只提供了一个，忽略目标尺寸检查。")
+    elif args.strict:
+        print("[check_figure] INFO: strict 模式建议同时提供 --width-in 与 --height-in "
+              "以启用实际尺寸一致性检查（防止 tight 裁剪导致尺寸漂移）。")
 
     expanded: list[str] = []
     for pat in args.paths:
         m = glob.glob(pat)
-        expanded.extend(m if m else [pat])
+        for candidate in (m if m else [pat]):
+            if os.path.isdir(candidate):
+                expanded.extend(_expand_directory(candidate))
+            else:
+                expanded.append(candidate)
 
     any_fail = False
     for path in expanded:

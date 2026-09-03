@@ -3,7 +3,9 @@ scipilot-figure-skill :: setup_style.py
 =======================================
 Publication-grade matplotlib / seaborn style configuration.
 
-应用出版级样式预设。支持 nature / ieee / science / general 四种期刊预设，
+应用出版级样式预设。支持 nature / ieee / science / general / cumcm 五种预设
+（cumcm = 国赛/美赛论文质感预设，对照国一论文范本提炼：五号字号阶梯、深色
+Okabe-Ito 色环、刻度朝外、去顶右边框），
 支持中英文（lang='zh'/'en'），中文模式按优先级自动查找
 Noto Sans CJK SC > Source Han Sans SC > SimHei > Microsoft YaHei
 并修正负号渲染。SciencePlots 可选——装了就用，没装回退到内置等效预设。
@@ -124,6 +126,41 @@ JOURNAL_PRESETS = {
         "axes.linewidth": 0.8,
         "axes.spines.top": False,
         "axes.spines.right": False,
+        "pdf.fonttype": 42,
+        "ps.fonttype": 42,
+        "svg.fonttype": "none",
+    },
+    # 国赛/美赛论文质感预设（对照国一论文范本实测提炼）：
+    # - 图按 A4 版心 14.6cm 内不缩放设计：默认宽 12.2cm≈4.8in，高≈3.2in
+    # - 字号阶梯对齐 Word 五号(10.5pt)/小四(12pt)：刻度 9pt 起，杜绝"字小费眼"
+    # - 深色系 Okabe-Ito 主色环（饱和度高、色盲安全），刻度朝外，去顶右边框
+    # - 网格默认关闭；需要时请 axis.grid(alpha=0.25, linewidth=0.5) 极浅灰
+    "cumcm": {
+        "figure.figsize": (4.8, 3.2),
+        "figure.dpi": 150,
+        "savefig.dpi": 300,
+        "font.family": "sans-serif",
+        "font.sans-serif": ["Arial", "Helvetica", "DejaVu Sans"],
+        "font.size": 10.5,
+        "axes.labelsize": 10.5,
+        "axes.titlesize": 12,
+        "xtick.labelsize": 9,
+        "ytick.labelsize": 9,
+        "legend.fontsize": 9,
+        "lines.linewidth": 1.5,
+        "lines.markersize": 6,
+        "axes.linewidth": 1.0,
+        "xtick.major.width": 1.0,
+        "ytick.major.width": 1.0,
+        "xtick.direction": "out",
+        "ytick.direction": "out",
+        "axes.grid": False,
+        "axes.spines.top": False,
+        "axes.spines.right": False,
+        "axes.prop_cycle": matplotlib.cycler(color=[
+            "#0072B2", "#D55E00", "#009E73", "#CC79A7",
+            "#E69F00", "#56B4E9", "#6B7280", "#222222",
+        ]),
         "pdf.fonttype": 42,
         "ps.fonttype": 42,
         "svg.fonttype": "none",
@@ -267,7 +304,9 @@ def setup_style(
     应用出版级样式预设。
 
     Args:
-        journal: 'nature' | 'science' | 'ieee' | 'general'
+        journal: 'nature' | 'science' | 'ieee' | 'general' | 'cumcm'
+            （'cumcm' 为国赛/美赛论文质感预设：五号字号阶梯、深色系 Okabe-Ito
+            色环、刻度朝外、去顶右边框，图宽按 A4 版心 14.6cm 内不缩放设计）
         lang: 'en' | 'zh' — 中文模式自动配置中文字体并修正负号
         use_sciplots: 优先尝试 SciencePlots；不可用则回退到内置预设
         serif_for_zh: 中文模式下使用宋体类衬线字体（中文期刊常约定）

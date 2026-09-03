@@ -77,16 +77,28 @@ def check_three_line_table():
             document = etree.fromstring(zf.read("word/document.xml"))
         keyword_paras = document.xpath("//w:p[.//w:t='关键词：']", namespaces={"w": W_NS})
         assert keyword_paras and not "".join(keyword_paras[0].getprevious().xpath(".//w:t/text()", namespaces={"w": W_NS}))
-        chapter_break = document.xpath(
-            "//w:p[.//w:t='一、问题重述']/w:pPr/w:pageBreakBefore",
-            namespaces={"w": W_NS},
-        )
-        assert chapter_break
+        chapter_paras = document.xpath("//w:p[.//w:t='一、问题重述']", namespaces={"w": W_NS})
+        assert chapter_paras
+        chapter = chapter_paras[0]
+        chapter_ppr = chapter.find(f"{{{W_NS}}}pPr")
+        # 国赛章节连续排版：一级标题不强制另起一页（摘要页后的分页由显式分页符处理）
+        assert chapter_ppr is None or chapter_ppr.find(f"{{{W_NS}}}pageBreakBefore") is None
+        chapter_size = chapter.xpath(".//w:sz/@w:val", namespaces={"w": W_NS})
+        assert chapter_size == ["28"]
+        chapter_font = chapter.xpath(".//w:rFonts/@w:eastAsia", namespaces={"w": W_NS})
+        assert chapter_font == ["黑体"]
+        chapter_align = chapter.xpath("./w:pPr/w:jc/@w:val", namespaces={"w": W_NS})
+        assert chapter_align == ["center"]
         heading2_size = document.xpath(
             "//w:p[.//w:t='1.1 问题背景']//w:sz/@w:val",
             namespaces={"w": W_NS},
         )
-        assert heading2_size == ["28"]
+        assert heading2_size == ["24"]
+        heading2_font = document.xpath(
+            "//w:p[.//w:t='1.1 问题背景']//w:rFonts/@w:eastAsia",
+            namespaces={"w": W_NS},
+        )
+        assert heading2_font == ["黑体"]
         tbl_borders = document.xpath("//w:tbl[1]/w:tblPr/w:tblBorders/*", namespaces={"w": W_NS})
         vals = {node.tag.rsplit("}", 1)[1]: node.get(f"{{{W_NS}}}val") for node in tbl_borders}
         assert vals["top"] == "single"

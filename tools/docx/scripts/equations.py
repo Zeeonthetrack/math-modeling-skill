@@ -131,6 +131,9 @@ LATEX_SYMBOLS = {
     "subseteq": "⊆",
     "cup": "∪",
     "cap": "∩",
+    "bigcup": "⋃",
+    "bigcap": "⋂",
+    "top": "⊤",
     "ldots": "…",
     "cdots": "⋯",
     "dots": "…",
@@ -175,7 +178,41 @@ LATEX_SYMBOLS = {
     "sinh": "sinh",
     "cosh": "cosh",
     "tanh": "tanh",
+    "sup": "sup",
+    "inf": "inf",
+    "det": "det",
+    "gcd": "gcd",
 }
+
+# ---------------------------------------------------------------------------
+# 数学排版常量（国赛论文位准：凡数学皆公式、算子与中文正体、display 上下置）
+# ---------------------------------------------------------------------------
+
+# WordprocessingML 命名空间（数学 run 的字体/字号属性挂在 w:rPr 上）
+W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+
+# 公式统一字体（用户机器已装 latinmodern-math.otf；缺失时 Word 回退 Cambria Math）
+MATH_FONT = "Latin Modern Math"
+# 公式默认字号（半磅为单位）：24 = 12pt，与小四正文一致
+MATH_FONT_SIZE = 24
+
+# CJK 字符在公式中必须正体（否则按数学斜体渲染，观感事故）
+CJK_RE = re.compile(r"[㐀-䶿一-鿿豈-﫿]")
+
+# 必须以正体输出的函数/算子名（LATEX_SYMBOLS 中属于算子的子集）
+UPRIGHT_OPERATORS = {
+    "min", "max", "argmin", "argmax", "lim", "log", "ln", "exp",
+    "sin", "cos", "tan", "cot", "sec", "csc",
+    "arcsin", "arccos", "arctan", "sinh", "cosh", "tanh",
+    "sup", "inf", "det", "gcd", "Re", "Im",
+}
+
+# display 模式下上下限置于正上/正下（m:nary limLoc=undOvr）的大型运算符
+# 注：∫ 按中国教材与 LaTeX 默认保持侧置，不在此列
+NARY_UNDOVR_CHARS = {"∑", "∏", "∐", "⋂", "⋃", "⋀", "⋁"}
+
+# display 模式下下极限置于正下方（m:limLow）的算子（对应 m:t 文本）
+LIMLOW_TEXTS = {"min", "max", "lim", "sup", "inf", "arg min", "arg max", "det"}
 
 
 def m_element(local_name, text=None):
@@ -185,13 +222,75 @@ def m_element(local_name, text=None):
     return elem
 
 
-def omml_run(text):
+def omml_run(text, upright=False, size=MATH_FONT_SIZE):
+    """
+    构造数学 run（m:r）。
+
+    - upright=True 或文本含 CJK 字符时，加 m:sty="p" 正体标记
+      （否则 Word 按数学斜体渲染，中文会呈现事故性的斜体感）；
+    - 所有数学 run 统一注入 Latin Modern Math 字体与字号（默认 12pt，
+      与正文一致），避免继承 docDefaults 导致公式比正文小一号。
+    """
     run = m_element("r")
+    if upright or CJK_RE.search(text):
+        rpr = m_element("rPr")
+        sty = m_element("sty")
+        sty.set(f"{{{OMML_NS}}}val", "p")
+        rpr.append(sty)
+        run.append(rpr)
+    # w:rPr 必须位于 m:rPr 之后、m:t 之前（CT_R 序列要求）
+    w_rpr = etree.SubElement(run, f"{{{W_NS}}}rPr")
+    r_fonts = etree.SubElement(w_rpr, f"{{{W_NS}}}rFonts")
+    r_fonts.set(f"{{{W_NS}}}ascii", MATH_FONT)
+    r_fonts.set(f"{{{W_NS}}}hAnsi", MATH_FONT)
+    r_fonts.set(f"{{{W_NS}}}eastAsia", "宋体")
+    sz = etree.SubElement(w_rpr, f"{{{W_NS}}}sz")
+    sz.set(f"{{{W_NS}}}val", str(size))
+    sz_cs = etree.SubElement(w_rpr, f"{{{W_NS}}}szCs")
+    sz_cs.set(f"{{{W_NS}}}val", str(size))
     text_elem = m_element("t", text)
     if text.startswith((" ", "\t")) or text.endswith((" ", "\t")):
         text_elem.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
     run.append(text_elem)
     return run
+
+
+def nary_element(chr_text, sub_children, sup_children, e_children):
+    """
+    构造 m:nary（大型运算符，上下限正上/正下）。
+
+    子元素顺序遵循 CT_Nary：naryPr → sub → sup → e。
+    e_children 为被操作表达式（吞入的紧邻后随原子），不可为空——
+    空 m:e 在 Word 中会显示虚线占位框，调用方须保证非空。
+    """
+    nary = m_element("nary")
+    nary_pr = m_element("naryPr")
+    chr_el = m_element("chr")
+    chr_el.set(f"{{{OMML_NS}}}val", chr_text)
+    lim_loc = m_element("limLoc")
+    lim_loc.set(f"{{{OMML_NS}}}val", "undOvr")
+    nary_pr.extend([chr_el, lim_loc])
+    sub = m_element("sub")
+    if sub_children:
+        append_group(sub, sub_children)
+    sup = m_element("sup")
+    if sup_children:
+        append_group(sup, sup_children)
+    elem = m_element("e")
+    append_group(elem, e_children)
+    nary.extend([nary_pr, sub, sup, elem])
+    return nary
+
+
+def lim_low_element(e_children, lim_children):
+    """构造 m:limLow（min/max/lim 等算子的下极限置于正下方）。"""
+    node = m_element("limLow")
+    elem = m_element("e")
+    append_group(elem, e_children)
+    lim = m_element("lim")
+    append_group(lim, lim_children)
+    node.extend([elem, lim])
+    return node
 
 
 def append_group(parent, children):
@@ -291,9 +390,16 @@ def script_element(base_children, sub_children=None, sup_children=None):
 
 
 class LatexParser:
-    def __init__(self, source: str):
+    def __init__(self, source: str, display: bool = False, font_size: int = MATH_FONT_SIZE):
         self.source = source.strip()
         self.index = 0
+        # display=True（居中大公式）时 ∑/∏ 上下限正上正下、min/max 下极限正下方；
+        # 行内公式保持侧置，避免撑大行距
+        self.display = display
+        self.font_size = font_size
+
+    def _run(self, text, upright=False):
+        return omml_run(text, upright=upright, size=self.font_size)
 
     def parse(self):
         nodes = self.parse_until()
@@ -307,7 +413,7 @@ class LatexParser:
 
         def flush_text():
             if text_buffer:
-                nodes.append(omml_run("".join(text_buffer)))
+                nodes.append(self._run("".join(text_buffer)))
                 text_buffer.clear()
 
         while self.index < len(self.source):
@@ -323,7 +429,7 @@ class LatexParser:
                 if nodes:
                     base = [nodes.pop()]
                 else:
-                    base = [omml_run("")]
+                    base = [self._run("")]
                 sub = sup = None
                 while self.index < len(self.source) and self.source[self.index] in "_^":
                     marker = self.source[self.index]
@@ -333,7 +439,7 @@ class LatexParser:
                         sub = group
                     else:
                         sup = group
-                nodes.append(script_element(base, sub, sup))
+                nodes.append(self._attach_scripts(base, sub, sup))
                 continue
             if char == "{":
                 self.index += 1
@@ -352,6 +458,78 @@ class LatexParser:
         flush_text()
         return nodes
 
+    @staticmethod
+    def _single_run_text(base):
+        """若 base 恰好是单个文本 run，返回其文本，否则返回 None。"""
+        if len(base) == 1 and base[0].tag == f"{{{OMML_NS}}}r":
+            t = base[0].find(f"{{{OMML_NS}}}t")
+            if t is not None and t.text:
+                return t.text
+        return None
+
+    def _attach_scripts(self, base, sub, sup):
+        """
+        上下标附着：display 模式下将大型运算符升级为 m:nary（上下限
+        正上/正下）、min/max/lim 类算子升级为 m:limLow（下极限正下方）；
+        其余情况退回普通 sSub/sSup/sSubSup（侧置）。
+        """
+        base_text = self._single_run_text(base)
+        if self.display and sub is not None and base_text in NARY_UNDOVR_CHARS:
+            operand = self._parse_operand_atom()
+            if operand is not None:
+                return nary_element(base_text, sub, sup, operand)
+        if (
+            self.display
+            and sub is not None
+            and sup is None
+            and base_text in LIMLOW_TEXTS
+        ):
+            return lim_low_element(base, sub)
+        return script_element(base, sub, sup)
+
+    def _parse_operand_atom(self):
+        """
+        吞入 nary 之后紧邻的一个原子，作为被操作表达式（m:e）。
+
+        视觉顺序不受影响（m:e 渲染在运算符右侧），但可避免空 m:e
+        在 Word 中显示虚线占位框。nary 后无内容时返回 None，调用方
+        退回普通上下标形式。
+        """
+        self.skip_spaces()
+        if self.index >= len(self.source):
+            return None
+        char = self.source[self.index]
+        if char == "}":
+            return None
+        if char == "\\":
+            result = self.parse_command()
+            if result:
+                return result
+            # \left / \displaystyle 等被忽略的命令：继续吞下一个原子
+            return self._parse_operand_atom()
+        if char == "{":
+            self.index += 1
+            children = self.parse_until("}")
+            if self.index >= len(self.source) or self.source[self.index] != "}":
+                raise ValueError("LaTeX 分组缺少右花括号 '}'")
+            self.index += 1
+            return children
+        # 单个字符（连同其上下标）作为一个原子
+        self.index += 1
+        base = [self._run(char)]
+        sub = sup = None
+        while self.index < len(self.source) and self.source[self.index] in "_^":
+            marker = self.source[self.index]
+            self.index += 1
+            group = self.parse_script_group()
+            if marker == "_":
+                sub = group
+            else:
+                sup = group
+        if sub is not None or sup is not None:
+            return [self._attach_scripts(base, sub, sup)]
+        return base
+
     def parse_command(self):
         self.index += 1
         start = self.index
@@ -363,19 +541,27 @@ class LatexParser:
             symbol = self.source[self.index]
             self.index += 1
             if symbol in ",;:":
-                return [omml_run(" ")]
+                return [self._run(" ")]
             if symbol == "!":
                 return []
             if symbol in "{}_^":
-                return [omml_run(symbol)]
-            return [omml_run(symbol)]
+                return [self._run(symbol)]
+            return [self._run(symbol)]
 
         if command in {"left", "right", "limits", "displaystyle", "textstyle"}:
             return []
         if command in {"quad", "qquad"}:
-            return [omml_run("  " if command == "quad" else "    ")]
+            return [self._run("  " if command == "quad" else "    ")]
         if command == "frac":
-            return [fraction_element(self.parse_required_group(), self.parse_required_group())]
+            # 分式内部按 textstyle 处理：其中的 ∑/∏ 等保持上下限侧置
+            saved_display = self.display
+            self.display = False
+            try:
+                num = self.parse_required_group()
+                den = self.parse_required_group()
+            finally:
+                self.display = saved_display
+            return [fraction_element(num, den)]
         if command == "sqrt":
             self.skip_spaces()
             degree = None
@@ -383,7 +569,9 @@ class LatexParser:
                 end = self.source.find("]", self.index + 1)
                 if end < 0:
                     raise ValueError("根式次数缺少右方括号 ']'")
-                degree = LatexParser(self.source[self.index + 1:end]).parse()
+                degree = LatexParser(
+                    self.source[self.index + 1:end], font_size=self.font_size
+                ).parse()
                 self.index = end + 1
             return [radical_element(self.parse_required_group(), degree)]
         if command == "begin":
@@ -403,16 +591,20 @@ class LatexParser:
         if command in accents:
             return [accent_element(self.parse_required_group(), accents[command])]
         if command == "tag":
-            return [omml_run(f"({self.group_text()})")]
+            return [self._run(f"({self.group_text()})")]
         if command == "text":
-            return [omml_run(self.group_text())]
+            # 公式内文本（含中文）一律正体
+            return [self._run(self.group_text(), upright=True)]
         if command == "operatorname":
-            return [omml_run(self.group_text())]
+            # \operatorname{min} 等算子名一律正体
+            return [self._run(self.group_text(), upright=True)]
         if command in {"mathrm", "mathbf", "mathit", "mathsf", "mathtt", "mathcal", "mathbb"}:
             return self.parse_required_group()
 
         if command in LATEX_SYMBOLS:
-            return [omml_run(LATEX_SYMBOLS[command])]
+            return [self._run(
+                LATEX_SYMBOLS[command], upright=command in UPRIGHT_OPERATORS
+            )]
         raise ValueError(f"不支持的 LaTeX 命令: \\{command}")
 
     def parse_matrix(self, environment):
@@ -427,7 +619,7 @@ class LatexParser:
             if not row_text.strip():
                 continue
             rows.append([
-                LatexParser(cell.strip()).parse()
+                LatexParser(cell.strip(), font_size=self.font_size).parse()
                 for cell in row_text.split("&")
             ])
         if not rows or len({len(row) for row in rows}) != 1:
@@ -458,7 +650,7 @@ class LatexParser:
             if char == "\\":
                 return self.parse_command()
             self.index += 1
-            return [omml_run(char)]
+            return [self._run(char)]
         raise ValueError("LaTeX 命令缺少必需参数")
 
     def parse_script_group(self):
@@ -489,21 +681,25 @@ class LatexParser:
 # 核心：LaTeX → OMML
 # ---------------------------------------------------------------------------
 
-def latex2omml(latex_str: str) -> bytes:
+def latex2omml(latex_str: str, display: bool = False, font_size: int = MATH_FONT_SIZE) -> bytes:
     """
     将 LaTeX 字符串转换为 Word OMML XML（即 <m:oMath> 元素内的 XML 字符串）。
     支持数学建模论文常用 LaTeX 子集：分式、根号、上下标、希腊字母、
     求和/积分符号、比较符号和普通文本。
+
+    display=True（居中大公式）时：∑/∏ 类上下限置于正上/正下（m:nary），
+    min/max/lim 类下极限置于正下方（m:limLow）；行内公式保持侧置。
+    font_size 为半磅值，默认 24（12pt，与小四正文一致）。
     """
     omml = etree.Element(f"{{{OMML_NS}}}oMath")
-    for child in LatexParser(latex_str).parse():
+    for child in LatexParser(latex_str, display=display, font_size=font_size).parse():
         omml.append(child)
     return etree.tostring(omml, encoding="unicode").encode("utf-8")
 
 
-def latex2omml_direct(latex_str: str) -> str:
+def latex2omml_direct(latex_str: str, display: bool = False, font_size: int = MATH_FONT_SIZE) -> str:
     """仅返回 OMML 字符串（调试用）。"""
-    return latex2omml(latex_str).decode("utf-8")
+    return latex2omml(latex_str, display=display, font_size=font_size).decode("utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -535,22 +731,66 @@ def find_paragraph_with_text(doc: Document, text: str) -> object:
     return None
 
 
-def replace_with_equation(para, omml_xml: bytes):
-    """
-    将段落中所有文本替换为 OMML 公式元素。
+def _build_tab_run():
+    """制表符 run（用于把公式编号推到右制表位）。"""
+    run = OxmlElement("w:r")
+    run.append(OxmlElement("w:tab"))
+    return run
 
-    原段落的内容会被清空，然后插入 <m:oMathPara> 包含 <m:oMath>。
+
+def _build_number_run(text: str):
+    """公式编号 run：Times New Roman 12pt（编号是文本，不是公式）。"""
+    run = OxmlElement("w:r")
+    rpr = OxmlElement("w:rPr")
+    fonts = OxmlElement("w:rFonts")
+    fonts.set(qn("w:ascii"), "Times New Roman")
+    fonts.set(qn("w:hAnsi"), "Times New Roman")
+    fonts.set(qn("w:eastAsia"), "宋体")
+    sz = OxmlElement("w:sz")
+    sz.set(qn("w:val"), "24")
+    sz_cs = OxmlElement("w:szCs")
+    sz_cs.set(qn("w:val"), "24")
+    rpr.extend([fonts, sz, sz_cs])
+    run.append(rpr)
+    text_elem = OxmlElement("w:t")
+    text_elem.text = text
+    run.append(text_elem)
+    return run
+
+
+def replace_with_equation(para, omml_xml: bytes, number: str = None, tab_pos_twips: int = 8300):
     """
+    将段落中所有文本替换为 OMML 公式元素（display 视觉居中）。
+
+    原段落的内容会被清空，然后以"居中制表位 + 行内 <m:oMath>（display
+    内容）+ 右制表位"布局插入公式；number 非空时在右制表位后悬挂编号
+    "(n)"。tab_pos_twips 默认 8300，即 A4 纸 + CUMCM 3.18cm 左右边距
+    的版心右端；其他页面配置请显式传入。
+
+    注意：不要用 <m:oMathPara> + m:jc=center 与编号 run 同段的写法——
+    Word 实测在同段存在 tab/编号 run 时公式退化为左对齐；双制表位
+    方案才能保证视觉居中且编号悬挂右端。
+    """
+    from docx.enum.text import WD_TAB_ALIGNMENT
+    from docx.shared import Twips
+
     # 清空段落的所有 run
     for r in para._element.findall(qn("w:r")):
         para._element.remove(r)
     for r in para._element.findall(qn("w:rPr")):
         para._element.remove(r)
 
-    # 创建 <m:oMathPara> 包装器
-    math_para = OxmlElement("m:oMathPara")
-    math_para.append(_build_math_element(omml_xml))
-    para._element.append(math_para)
+    para.paragraph_format.tab_stops.add_tab_stop(
+        Twips(tab_pos_twips // 2), WD_TAB_ALIGNMENT.CENTER
+    )
+    para.paragraph_format.tab_stops.add_tab_stop(
+        Twips(tab_pos_twips), WD_TAB_ALIGNMENT.RIGHT
+    )
+    para._element.append(_build_tab_run())
+    para._element.append(_build_math_element(omml_xml))
+    if number:
+        para._element.append(_build_tab_run())
+        para._element.append(_build_number_run(f"({number})"))
 
 
 def _build_math_element(omml_xml: bytes):
@@ -633,14 +873,17 @@ def replace_placeholder(doc: Document, placeholder: str, latex: str):
         print(f"  ! 未找到占位符 '{placeholder}'，跳过")
         return 0
 
-    omml_xml = latex2omml(latex)
+    omml_inline = latex2omml(latex)
+    omml_display = None  # 惰性转换：仅当存在整段占位时才做 display 版
     replaced = 0
     for para in paragraphs:
         if para.text.strip() == placeholder:
-            replace_with_equation(para, omml_xml)
+            if omml_display is None:
+                omml_display = latex2omml(latex, display=True)
+            replace_with_equation(para, omml_display)
             replaced += 1
             continue
-        while placeholder in para.text and replace_inline_placeholder(para, placeholder, omml_xml):
+        while placeholder in para.text and replace_inline_placeholder(para, placeholder, omml_inline):
             replaced += 1
     print(f"  OK '{placeholder}' -> 已插入 {replaced} 处公式")
     return replaced

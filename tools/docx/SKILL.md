@@ -33,12 +33,26 @@ doc = pf.new_document(
 # 若官方模板包含固定摘要页或编号页，应改为 True 并在原位置填充。
 pf.title(doc, "论文题目")
 pf.abstract_title(doc)
-pf.body(doc, "摘要正文。")
+pf.body_rich(doc, [
+    ("text", "摘要正文，关键指标用行内公式："),
+    ("math", r"\operatorname{RMSE}=1.85\ ^\circ\text{C}"),
+    ("text", "。"),
+])
 pf.keywords(doc, "优化；预测")
-pf.equation(doc, r"\min f(x)=\sum_{i=1}^{n}x_i^2")
-pf.three_line_table(doc, [["符号", "说明"], ["x", "决策变量"]])
+pf.equation(doc, r"\min_{\theta}\ f(\theta)=\sum_{i=1}^{n}x_i^2", number="1")
+pf.three_line_table(doc, [
+    ["符号", "说明", "单位"],
+    [[("math", r"x_i")], "决策变量", "—"],
+])
 pf.save_document(doc, Path("<PROJECT_ROOT>"), contest="cumcm")
 ```
+
+要点：
+
+- `body_rich`/`figure_caption`/`table_caption` 与表格单元格支持 `("text", …)`/`("math", latex)` 混排——凡数学皆公式（等号、上下标、希腊字母、运算符链、函数名、元组一律 `("math", …)`），禁止 Unicode 上下标与下划线冒充。
+- `equation(latex, number=)` 产出视觉居中的 display 公式（双制表位法：居中制表位+行内 oMath+右制表位悬挂编号；不要用 oMathPara jc=center 与编号同段，Word 实测退化为左对齐）：∑/∏/⋃ 上下限正上正下、min/max 下极限正下方、算子与中文自动正体、Latin Modern Math 12pt。多约束/多条件用 `\begin{cases}` 大花括号竖排，连等计算用 `\begin{aligned}` 等号对齐，禁止逗号一行串联。
+- `three_line_table` 默认满足"表格五律"（细三线、单倍行距、双居中、跨页重复表头、行不断裂），列宽按内容自动分配，可用 `col_widths=[…]`（cm）覆盖。
+- 附录用 `code_block(code_text, language="python"|"matlab")`（Consolas 9pt、着色、行号、细灰框）与 `reference_entry()`（五号悬挂缩进）。
 
 ## 公式
 
@@ -139,4 +153,4 @@ python scripts/paper_format.py validate "<PROJECT_ROOT>/完整论文.docx" --con
 python scripts/equations.py verify-conversion "<PROJECT_ROOT>/完整论文.docx"
 ```
 
-`verify-conversion` 仅适用于由本工具的 Pandoc 转换生成、带 `.conversion.json` 的 DOCX；直接由 `paper_format.py` 构建时省略。`paper_format.py validate` 输出结构化指标，并在官方前置结构、篇幅质量目标、公式/图/表数量、图表编号与正文引用、参考文献双向对应或实际页数任一不满足时返回非零退出码。所有竞赛默认至少 8 幅图；CUMCM 默认的 15000 字词单位和约 20 页只是质量目标。以 2026 年官方规范为例，正文不超过 30 页才是硬约束。只有当届官方规则或用户明确要求允许偏离时才能调整目标并记录依据。结构校验后，把 DOCX 渲染成 PDF 或图片抽检分页、公式、表格、图片、页眉页脚和字体替换。
+`verify-conversion` 仅适用于由本工具的 Pandoc 转换生成、带 `.conversion.json` 的 DOCX；直接由 `paper_format.py` 构建时省略。`paper_format.py validate` 输出结构化指标，并在官方前置结构、篇幅质量目标、公式/图/表数量、图表编号与正文引用、参考文献双向对应或实际页数任一不满足时返回非零退出码。所有竞赛默认至少 8 幅图；CUMCM 默认的 9000 字词单位（典型 9,000~15,000）和约 20 页只是质量目标。以 2026 年官方规范为例，正文不超过 30 页才是硬约束。只有当届官方规则或用户明确要求允许偏离时才能调整目标并记录依据。结构校验后，把 DOCX 渲染成 PDF 或图片抽检分页、公式、表格、图片、页眉页脚和字体替换。

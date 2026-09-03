@@ -77,7 +77,13 @@ def check_syntax(source: str, backend: str) -> Finding:
     stack: list[str] = []
     quote: str | None = None
     escaped = False
+    in_comment = False
     for char in source:
+        if char == "\n":
+            in_comment = False
+            continue
+        if in_comment:
+            continue
         if escaped:
             escaped = False
             continue
@@ -87,6 +93,9 @@ def check_syntax(source: str, backend: str) -> Finding:
         if quote:
             if char == quote:
                 quote = None
+            continue
+        if char == "#":  # R 行注释：# 至行尾不参与配对检查
+            in_comment = True
             continue
         if char in {'"', "'"}:
             quote = char
@@ -106,11 +115,19 @@ def check_syntax(source: str, backend: str) -> Finding:
 
 def check_font_family(source: str, backend: str) -> Finding:
     families = regex_hits(
-        [r"Arial", r"Helvetica", r"Liberation Sans", r"sans-serif", r"base_family\s*=\s*['\"]sans['\"]"],
+        [
+            r"Arial", r"Helvetica", r"Liberation Sans", r"sans-serif",
+            r"base_family\s*=\s*['\"]sans['\"]",
+            # serif 族同样是出版安全字体（IEEE 等期刊即要求 Times）
+            r"Times", r"Liberation Serif", r"Nimbus Roman", r"STIX",
+            r"font\.family['\"]?\s*[:=]\s*['\"]serif['\"]",
+            r"font\.serif\s*[:=]",
+            r"base_family\s*=\s*['\"]serif['\"]",
+        ],
         source,
     )
     if families:
-        return finding("FONT-FAMILY", "PASS", "A publication-safe sans-serif family is configured", families)
+        return finding("FONT-FAMILY", "PASS", "A publication-safe font family is configured (sans-serif or serif stack)", families)
     label = "matplotlib rcParams" if backend == "python" else "ggplot/theme or graphics device"
     return finding("FONT-FAMILY", "FAIL", f"No explicit publication-safe font family found in {label}")
 

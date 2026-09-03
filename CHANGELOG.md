@@ -2,6 +2,151 @@
 
 当前公开版本从 `1.0.0` 重新建立版本基线。根目录 `VERSION` 是当前版本的唯一准据。
 
+## 1.8.5 - 2026-09-02
+
+### 合并两位开发者的 v1.80（绘图精美化融合 + 双体系合并）
+
+本版本合并两个并行的 v1.80 分支：分支一完成"绘图双体系合并与导出自检闭环"（删除 plot_style.py / dsh-plugin、export_figure `tight=False` + `preflight`、figure_audit 跳过灰度图）；分支二完成"绘图精美化融合"（新增质感门禁、几何示意图工具箱、棒棒糖模板、cumcm 国赛预设）。合并后保留分支一的减法（删除旧体系）与分支二的加法（新工具），冲突处以"删除旧体系"为准。
+
+新增工具与预设（源自分支二）：
+
+- **`tools/figure/scripts/texture_audit.py`**：成图质感门禁。墨色浓度过淡 FAIL、暗部偏浅 WARN、主色超 10 种 WARN、绿色盲模拟（Machado 2009 矩阵）主色不可分 WARN、灰度明度差 INFO、疑似过小文字 INFO；同色异桶合并+桶内均值取色消除误报。
+- **`tools/schematic/scripts/geometry_kit.py`**：题意沉浸几何示意图工具箱（路径 D）——斜二测 3D 坐标系、向量、角弧、分段着色轨迹、浅灰圆柱/球体+高亮扇区、判定区域、图上直标，PNG300+PDF+SVG 三件套。
+- **`tools/figure/scripts/templates/make_lollipop_stem.py`**：第 12 个高阶模板——棒棒糖图（扰动/灵敏度/序列对比），CSV 契约 `seq,value[,label]`，`--baseline` 贯穿基准线。
+- **`setup_style.py`**：新增 `journal='cumcm'` 国赛质感预设——五号字号阶梯（刻度 9pt / 轴标签 10.5pt / 标题 12pt）、深色 Okabe-Ito 色环、刻度朝外、去顶右边框、图宽 4.8in（A4 版心内不缩放）。
+
+文档纪律（源自分支二，已适配合并后体系）：
+
+- `tools/figure/SKILL.md`：第 5 步竞赛一律 `journal='cumcm'`；第 6 步新增绘制五条纪律（一图一脚本、单一样式源、数据禁硬编码、图上直标、色深字大）；第 9 步审计改三脚本序（check_figure → texture_audit → figure_audit）；核心原则字号条款升级。
+- `tools/schematic/SKILL.md`：新增路径 D（题意沉浸几何示意图走 geometry_kit，与 draw.io 框图分工）。
+- `tools/schematic/references/geometry-diagrams.md`（新增）：构图六纪律、QA 闭环、七项验收清单、TikZ 可选后端（无本地 TeX 一律回退 matplotlib）。
+- `template_catalog.md`：11→12 个模板，登记 lollipop-stem 契约。
+- 编程手 `SKILL.md` + `质检清单.md`：产物契约加路径 D、步骤 6/7 加 cumcm 与 texture_audit、质检清单加质感勾选项。
+
+冲突解决（以删除旧体系为准）：分支二仍引用的 `plot_style.py` 复制指令已统一改回"从 `tools/figure/scripts/` 导入"；`style_constants.py` 的 SKILL_ROOT 检测维持指向 `style_constants.py` 自身（不回退到 plot_style.py）；`export_figure.py` 维持 `tight=False` + `preflight=True` + 灰度临时文件修复。
+
+- **测试**：合并后含分支二新增的 `test_texture_audit.py`（5 条）+ `test_geometry_kit.py`（3 条）；`test_figure_templates.py` 登记 lollipop 模板；`test_figure_tools.py` 维持分支一重写版本。
+
+## 1.8.0 - 2026-09-02
+
+### 绘图双体系合并与导出自检闭环（tools/figure）
+
+针对绘图功能"双体系重叠 / tight 默认值违反尺寸原则 / 同名 export_figure 行为不一致"三类冲突的统一修复：
+
+- **删除旧绘图体系**：移除 `references/roles/编程手/scripts/plot_style.py`（494 行向后兼容层）及整个 `dsh-plugin/` 目录（用户确认不再使用）。绘图工具统一收敛到 `tools/figure/scripts/`。
+- **`visual_qa.py`**：迁入 `audit_design()`（标题过长 / 图例超 5 项 / 逐点标记 / 柱状图未从零 / 2×2 矩阵冗余 colorbar），返回类型统一为 `[(severity, msg)]`，与 `audit_layout()` 一致。
+- **`style_constants.py`**：SKILL_ROOT 检测改为检查自身路径（不再依赖已删除的 plot_style.py）。
+- **`export_figure.py`**：`tight` 默认 `True → False`（保持 figsize 精确尺寸，避免插入论文后二次缩放）；新增 `preflight=True`——导出前自动运行 `audit_layout + audit_design`，FAIL 级问题直接 `raise` 阻断落盘，WARN 级打印提醒不阻断。
+- **`figure_audit.py`**：跳过 `_grayscale` 派生预览图（PIL 转灰度丢 DPI 元数据、无 SVG 配对，属自检辅助产物，不作独立图审计）。
+- **`check_figure.py`**：strict 模式未提供 `--width-in/--height-in` 时打印 INFO，提醒启用实际尺寸一致性检查。
+- **文档同步**：编程手 `SKILL.md` / `工作流程.md` 改为从 `tools/figure/scripts/` 导入（`sys.path.insert` + `from setup_style/export_figure/visual_qa import ...`），不再复制 plot_style.py；`viz_pitfalls.md`、`tools/figure/SKILL.md` 更新 tight 与 preflight 语义。
+- **测试**：重写 `tests/test_figure_tools.py` 适配新 API（返回 list、list[tuple] 断言、尺寸断言对应 tight=False 精确 figsize）。绘图相关 27/27 通过。
+- **已知**：全套 132 测试中 3 个失败（test_equations / test_latex_paper）为 Windows 临时目录短路径（`HARRY_~1`）与长路径比较的既有平台环境问题，与本次绘图修复无关。
+
+## 1.7.5 - 2026-09-02
+
+### 绘图工具链健壮性修复（tools/figure）
+
+以实际运行与静态审计发现的 11 类 bug 为依据，统一修复 `tools/figure` 的 11 个模板脚本与 4 个核心工具脚本：
+
+- **MPLCONFIGDIR 临时目录泄漏**：11 个模板将 `os.environ.setdefault("MPLCONFIGDIR", tempfile.mkdtemp(...))` 改为条件创建（`if not os.environ.get("MPLCONFIGDIR")`），避免环境变量已设置时仍静默创建废弃临时目录。
+- **numpy 2.x 兼容**：`make_cv_roc_ci.py` 用 `_trapezoid = getattr(np, "trapezoid", None) or np.trapz` 兼容 numpy 2.x 移除 `np.trapz` 的变更。
+- **`make_cv_roc_ci.py` 重构**：`add_summary_table(fig, rows, columns, *, bottom=0.035) -> float` 全行渲染（row_h=0.040、height=0.072+len(rows)*row_h、返回表区顶部），`fold_aucs_by_model` 预算复用，主轴自适应 `fig.add_axes([0.17, ax_bottom, 0.70, 0.955 - ax_bottom])`。
+- **`check_figure.py`**：新增 `AUDIT_EXTS` + `_expand_directory`（os.walk 递归），支持目录参数；`--width-in/--height-in` 成对校验（is not None + 单边 WARN）。
+- **`export_figure.py`**：`_grayscale_from(fig, basename, dpi, existing_png=None)`，formats 含 png 时复用已导出文件，否则用 tempfile.mkstemp 临时渲染后删除（不多写 png）。
+- **`style_constants.py`**：删除与 `layout_tools.py` 同名不同签名冲突的 `add_panel_labels`。
+- **`validate_figure.py`**：R 语法检查 `in_comment` 状态跳过 `#` 行注释；`check_font_family` 扩充 serif 白名单（Times/Liberation Serif/Nimbus Roman/STIX/font.family=serif 等）。
+- **模板修复**：`make_correlation_pairgrid.py` 字号 4.7→6.0、`tick_params(labelbottom/labelleft=False)` 替代 `set_xticklabels([])`；`make_grouped_corr_split_violin.py` 组括号连续性校验（同组特征不相邻时显式报错）；`make_prediction_marginal_grid.py` 顶部边际分布用 `tick_params` 隐藏刻度；`make_rf_tpe_surface.py` 私有 `_axinfo` 加 `isinstance` 防护。
+- `tools/figure/SKILL.md` 依赖块补 `Python>=3.10`（模板脚本使用 `zip(..., strict=True)` 等 3.10+ 语法）。
+- 全量 27 条 figure 测试通过。
+
+## 1.7.0 - 2026-09-02
+
+### 格式排版规则第二轮（居中修复 + 编号铁律 + 白名单精确化 + 呈现纪律）
+
+依据用户对重排版论文的逐项审读反馈（对照国一格式范本）：
+
+- **修复 display 公式左对齐事故**：`paper_format.equation()` 与 `equations.py replace_with_equation()` 弃用"m:oMathPara jc=center 与编号 run 同段"的写法（Word 实测退化为左对齐），改为双制表位方案（居中制表位 4150 twips + 行内 oMath + 右制表位 8300 twips 悬挂编号），公式视觉居中、编号钉在版心右端；两处 docstring 记录该坑。更新两处测试断言（test_equations、test_paper_format）。
+- **图表编号铁律**（论文格式规范/写作规范/自审框架/LaTeX格式规范同步）：图、表全文按出现先后连续编号（图1、图2…/表1、表2…），图表分编，**绝对禁止章节连字符编号**（图5-1、表3-2、图4.8 一律不许出现）；附录图表用"附表1/附图1"或延续正文序号。此前规范允许"章节制二选一"，与用户实证（优秀论文无一例外连续编号）冲突，已废除。
+- **凡数学皆公式白名单精确化**：必须公式化清单补坐标元组 `(0, 200, 0)`、区间 `[8.015, 9.415] s`、含不等号片段 `y>0`（此前只列等号）；白名单收窄为仅三类——数字+单位且无数学结构、纯英文字符串、字母+非下标数字编号。
+- **多行公式与多数据呈现纪律**：三条件及以上约束用 `\begin{cases}` 大花括号竖排（一行一条），连等/递推计算用 `\begin{aligned}` 等号对齐（一行一句），禁止逗号一行串联；正文 4 项及以上并列数据/映射/分配关系改用三线表、示意图（diagram_qN_*）或换行对齐呈现，判断标准为"读者 3 秒内能否读出谁对应谁"；2~3 项零碎数据允许行内逗号并列。
+- `tools/docx/SKILL.md` 要点同步上述机制与纪律。
+- 全部规则在豆包 2025 国赛 A 题论文上重排验证（`完整论文_重排版_v2.docx`：编号公式居中、三处 s.t. 改 cases 大括号、图1~图9/表1~表5/附表1~3 连续编号、坐标/区间/不等号全公式化、目标分配逗号堆积段改三线表）。
+- 全量 132 条测试通过；同步至 dsh-plugin 内置知识库。
+
+## 1.6.1 - 2026-09-02
+
+### 工具链健壮性补丁（第三方 agent 实跑暴露）
+
+以豆包桌面端装载本 skill 自动跑 2025 国赛 A 题为测试场，归因其论文格式事故时暴露的两个工具层缺口：
+
+- `tools/docx/scripts/equations.py`：`LATEX_SYMBOLS` 补 `\bigcup`（⋃，自动享有 display nary 上下置）、`\bigcap`（⋂）、`\top`（⊤ 转置符）；此前这些常用命令报"不支持的 LaTeX 命令"。`tests/test_equations.py` 新增 `test_bigcup_transpose_symbols` 回归。
+- `tools/docx/scripts/paper_format.py`：`page_number_footer()` 幂等化——页脚已含 PAGE 域（如 `论文模板.docx` 自带页码）时直接返回，不再叠加第二个页码域（此前与模板同用会出现"11""22"双页码）。
+- 全量 132 条测试通过。
+
+## 1.6.0 - 2026-09-02
+
+### 绘图流程升级（示意图工具 + 高阶数据图模板 + diagram 审计）
+
+整合同事在"绘图流程优化版"中的绘图增量（该版本基于本仓库 v1.4.0 开发，本次仅吸纳其绘图部分，其余部分仍以本仓库为准）。
+
+- 新增 `tools/schematic/` 示意图工具（draw.io 路线）：技术路线图、流程图、机制示意图以 `.drawio` XML 为源文件，可编辑矢量导出（PNG + SVG/PDF 成对交付）；含 4 套版式模板（技术路线/流程/机制/对比，各附 example.json 与 preview.png）、tabler SVG 图标库（含 ATTRIBUTION.md）、`check_layout.py` 布局体检（重叠/越界/断连）、`export_figure.py` 导出、`preview_html.py` 预览；references 含 authoring/preflight-rules/self-check/replication/icons/adding-templates 六份操作文档。
+- 新增 `tools/figure/scripts/templates/` 11 个高阶数据图模板：Taylor 图、和弦图、云雨图、分组环形热图、分组相关分裂小提琴、SHAP 组合图、ROC 置信区间、相关散点矩阵、预测边际网格、RF-TPE 曲面、城市公园降温组合图；统一 `--data csv` 真实数据契约 + `--demo` 演示模式（演示产物带 `_demo` 后缀，禁止交付）。
+- `references/roles/编程手/scripts/figure_audit.py` 新增 diagram 类别审计：PNG 须与 SVG/PDF 矢量成对、DPI 缺失仅 WARN 不 FAIL、foreignObject 计为可编辑文本、统计输出新增 diagram_count。
+- 分工与命名约定（多文档协同更新）：
+  - 示意图命名 `diagram_qN_*`（全文级 `diagram_all_*`），`.drawio` 源 + PNG + 矢量成对；可计入正式图但只作补充，不替代数据图；不计入 raw/process/result 三类图配额。
+  - `tools/figure/SKILL.md` 新增示意图与数据图分工段；`tools/figure/references/api-templates/template_catalog.md` 新增 11 个模板的契约表（用途/数据列/参数）。
+  - 编程手 SKILL/工作流程/质检清单补示意图产出条款；`references/Subagent调度.md` W1 门禁强化"每子问题至少 1 张真实数据图"；`references/roles/论文手/SKILL.md` 明确 diagram 图引用纪律。
+  - 根 `SKILL.md` 工具路由表补 schematic 入口与分工说明。
+- `tests/test_figure_templates.py` 新增 10 条模板契约测试；`tests/test_figure_tools.py` 补 diagram 审计用例；全量 131 条测试通过。
+- 同步至 dsh-plugin 内置知识库。
+
+## 1.5.0 - 2026-09-01
+
+### 论文手第三轮优化（格式排版：凡数学皆公式 + 表格五律 + display 公式体系）
+
+以用户实跑产出（2020 国赛 A 题炉温曲线一代论文）与格式范本（同题 LaTeX 国一论文、2025 四川省一符号表）逐页对照为据，修复三个工程层的系统性排版缺陷。
+
+- `tools/docx/scripts/equations.py`（LaTeX→OMML 转换器）：
+  - 数学 run 统一注入 Latin Modern Math 字体与 12pt 字号（不再继承 docDefaults 11pt 导致公式小一号、不再显式 Cambria Math）；
+  - 正体规则：`\text{}`/`\operatorname{}` 输出带 `m:sty="p"` 的正体 run，CJK 字符自动正体（修复"公式内中文斜体"事故）；min/max/lim/log/ln/sin/cos/argmin/argmax 等算子正体输出，新增 `\sup`/`\inf`/`\det`/`\gcd`；
+  - `latex2omml(latex, display=True)`：display 模式下 `\sum`/`\prod` 升级为 m:nary（上下限正上/正下，自动吞入后随操作数避免空占位框）、`\min`/`\max`/`\lim` 升级为 m:limLow（下极限正下方）；`\int` 按中国教材惯例保持侧置；行内公式全部保持侧置；分式内部按 textstyle 处理；
+  - `replace_with_equation(para, omml, number=)`：oMathPara 加 `m:jc=center` display 居中，编号以右制表位悬挂版心右端；`replace_placeholder` 对整段占位与行内占位分别使用 display/inline 转换。
+- `tools/docx/scripts/paper_format.py`：
+  - `equation(latex, number=)`：display 居中 + 编号右端 + 公式段单倍行距；
+  - 新增 `body_rich()`/`_add_rich()` 混排基础设施：正文、图题、表题、表格单元格均支持 `("text", …)`/`("math", latex)` segments——"凡数学皆公式"的总开关；
+  - `three_line_table()` 重写为"表格五律"：顶/底线 1pt（原 1.5pt 过粗）、单元格单倍行距（原误继承正文 1.5 倍导致"肥大"）、水平+垂直双居中、首行 tblHeader 跨页自动重复、行 cantSplit 不跨页断裂、列宽按内容分配（可 `col_widths` 覆盖）、字号默认五号、单元格支持混排公式；
+  - 新增 `code_block()`：Consolas 等宽 9pt、语法着色（关键字蓝/注释绿/字符串暗红）、行号、单倍行距、细灰边框（段落 pBdr 整框合并，不占表格名额）；支持 python/matlab；
+  - 新增 `reference_entry()`：五号、悬挂缩进 2 字符、1.15 倍紧凑行距；
+  - 正文默认行距 1.5→1.35；heading1/2/3 段距修正为 12/6、8/4、6/3 递减并加 keep_with_next（落实 v1.4.0 规范条款）；插图默认宽 11→12.5cm。
+- 规范文档：
+  - `论文格式规范.md`：行距默认 1.35；公式行与"公式"节扩为"凡数学皆公式（判定规则 + 简单值白名单）+ 公式八条"；"表"节扩为"表格五律"（细线磅数/紧凑/双居中/不折行/跨页完整）+ 符号表三列纪律 + 科学计数法写法；附录支撑文件列表定为两列三线表；构建函数清单补新 API；图宽区间改 60~90%。
+  - `写作规范.md`：新增"数学字块排版纪律"（禁止 Unicode 上下标/下划线/程序式科学计数法冒充公式）；标题短语化条款强化；图题表题不堆参数。
+  - `自审框架.md`：文档结构节新增六组勾选项（凡数学皆公式扫描、大公式 display 排版、表格五律、代码块四要素、行距与参考文献紧凑、图宽）。
+  - `章节模板.md`：符号说明节扩为四列排版纪律（符号列公式、说明列精简一行、单位列正体、表格五律）。
+  - `LaTeX格式规范.md`：补公式排版纪律（display/`\text{}`/`\operatorname{}`/行内公式化），与 Word 分支同位准。
+  - `tools/docx/SKILL.md`：推荐流程示例更新为新 API（body_rich、equation number、表格混排、code_block）。
+  - `tools/latex/assets/templates/cumcm/main.tex`：`\linespread` 1.5→1.3（LaTeX 语义下与 Word 1.35 倍及范本实测观感一致）。
+- `tests/test_equations.py` 新增 8 条回归用例（字体字号注入、正体规则、nary/limLow、inline/∫ 侧置、空 m:e 防护、整段替换 display 居中）；`tests/test_paper_format.py` 新增 3 条（表格五律结构断言、display 编号公式、代码块非表格）；全量 121 条测试通过。
+- 同步至 dsh-plugin 内置知识库。
+
+## 1.4.0 - 2026-09-01
+
+### 论文手第二轮优化（摘要方法论 + 去 AI 味 + 官方硬约束 + 2025 最新实测）
+
+- `references/roles/论文手/references/写作规范.md`：
+  - 摘要节系统升级：篇幅基准改为 750~1000 汉字 / 3~6 段（2020—2025 国一实测）；新增"方法—答案闭环五要素链"（任务/瓶颈→决定性处理→核心模型→关键结果→结论/验证，结果紧跟方法）；"评委判断门"数字纪律（保留正文原精度、口径冲突宁省）；S/A/B/C 信息分级与信息损失六类自查；任务单元组织软化（默认逐问，允许递进/合并）；题型主干表（机理/优化/预测/评价/分类/统计/运筹 7 类）；结尾按价值决定有无；交叉验证与负结果可进摘要；加粗纪律细化为短语级。
+  - 摘要"详见表X"指引删除规则及唯一例外：赛题显式指定的输出文件（如 resultN.xlsx）必须在摘要相应问末尾点名（2025 国赛两篇实测印证）。
+  - "文病三反"扩充为"去 AI 味：文病三反 + 深度痕迹清单"：新增同义词轮换、系词回避、悬浮式"从而/进而"、成对转折收束、虚假范围、公式化挑战段；破折号每段 ≤1 个；冒号只禁 3 项以上串联长列举；新增受保护片段五类、反编造铁律、改写落点三级对照。
+  - 国赛专项规则补 2025 最新实测：问题分析两式并存（段落式/小节式）+ 章首各问题关系图；每问末尾"模型汇总"小段（max/min + s.t. 总成）；约束逐条命名加粗；伪代码与附录代码带行号；附录清单含《AI工具使用详情》（2025 标配）；参考文献 AI 工具条目实测样例；总述段新增"公共基础式"开法。
+- `references/roles/论文手/references/论文格式规范.md`：CUMCM 官方硬约束从 2 条扩为 2026 版执行摘要 12 条（纸质版页序、页码从摘要页起页脚居中、电子版首页摘要页、单文件 ≤20MB、支撑材料 ZIP ≤20MB、无目录、正文 ≤30 页口径、附录两必含、无程序/无支撑材料两声明、匿名性含元数据）；附录代码收窄为等宽 8~9pt 单倍行距带行号；标题段距递减（12/6、8/4、6/3）且与下段同页；表题保持居中并注明左对齐变体；公式编号注明连续制为主流、章节制可选但全篇统一。
+- `references/roles/论文手/references/自审框架.md`：官方规则节补无目录/页码/匿名性/附录两声明勾选项；摘要勾选项更新为五要素闭环 + 信息损失六类 + 数字口径；新增深度 AI 痕迹扫描勾选项；附录勾选项补行号与 AI 详情清单。
+- `references/roles/论文手/references/章节模板.md`：摘要段补组织灵活性与题型主干指引；问题分析补两式并存；模型建立补约束命名与模型汇总；附录补行号、AI 详情清单与两声明。
+- `references/roles/论文手/SKILL.md`：完成门禁新增可选文本扫描说明。
+- 新增 `tools/docx/scripts/aigc_scan.py`：移植自网络公开 skill "cumcm-aigc-reduce-skill" 的 AIGC 特征扫描器（9 维启发式），作为交付前辅助扫描，仅提示人工判定位置，不作否决依据。
+- 优化依据：用户提供的群聊痛点记录、论文修订实录、十篇国一论文精读、网络三个论文写作 skill 精选（摘要重构/降 AI 率/排版），以及 2025 年最新 A 题题目与两篇最新完赛论文（摘要点名 resultN.xlsx、附录 AI 使用详情、代码带行号等实测特征）；网络 skill 部分规则已与官网 2026 格式规范 PDF 交叉核验一致。
+- 同步至 dsh-plugin 内置知识库。
+
 ## 未发布
 
 ### 完善算法资料与建模方法论
@@ -48,6 +193,30 @@
 - 新增根目录 `使用指南.md`：说明本 Skill 的定位（辅助工具）、交付物使用边界、生成文件清单、提交前人工核对事项；不展开学术诚信与竞赛规则，聚焦交付物使用边界。
 - 根 `SKILL.md` 头部新增指引：使用前先阅读并复制 `使用指南.md` 到工作区。
 - 同步脚本 `sync_dsh_plugin.py` 支持同步 `使用指南.md` 到 dsh-plugin 内置知识库。
+
+## 1.3.0 - 2026-08-31
+
+### 论文手按国赛国一论文实测重做（内容与结构）
+
+- `references/roles/论文手/references/写作规范.md` 全文重排为三部分：
+  - 新增"读者模型与语言纪律"：评委画像（数模专家、非领域专家、限时阅读）、语言三铁律（平实质朴/严密专业/自然流畅）、术语随用随解释、密度纪律（每问仅 1~3 个关键数值做多维讨论、段落超 6 个数字收进表格）、机器视角清零（表格播报腔/元指令泄露/占位符/工作日志式标题/机器自述）、文病三反（宏大动词/套娃长定语/机械排比）。
+  - 摘要改为分竞赛范式：CUMCM 用国赛叙事链（总述段 + 逐问"针对问题X，考虑…建立…采用…得到…（1~2 个关键数值）"，600~1000 字独立第一页，关键词 3~5 个），MCM/ICM 沿用四段式。
+  - 反模式自查新增结构类（两段式建模、中间产物搬运、独立敏感性大章、附录无代码）、机器视角类、语言病类。
+  - 新增"国赛专项规则"：八股骨架与各章篇幅锚点、按问题联动（禁两段式、公共底座 ≤1.5 页）、每问"建立→求解→结果与分析"内部范式、灵敏度并入末节或 ≤2 页小章、诚实负面结果写入局限、附录三大件、AI 使用合规三件事（正文角标 + 参考文献 AI 工具条目 + 《AI工具使用详情》）、高频句式库。
+- `references/roles/论文手/references/章节模板.md` 重排为国赛八股骨架逐章模板（每章给篇幅锚点、组织范式与常见错误）。
+- `references/roles/论文手/references/自审框架.md` 检查单扩充：摘要分竞赛检查、按问题联动、假设精炼、术语解释、密度纪律、机器视角清零、附录三大件、正文/附录精度分层、AI 合规、图表题注位置与编号一致性、图密度与颜色纪律。
+- `references/roles/论文手/SKILL.md`、`references/roles/论文手/references/工作流程.md`：CUMCM 篇幅质量目标由"约 15000 字词单位"改为"典型 9,000~15,000 字词单位（近年国一实测约 9,000~16,000，9000 为硬下限预警，禁止凑字数填充）"；W1 门禁补"按问题联动 + 摘要国赛叙事链"核对项。
+- `tools/docx/SKILL.md`、`tools/latex/SKILL.md`、`README.md` 篇幅口径同步更新。
+
+### 国赛排版基线（无官方模板时的构建基线）
+
+- `references/roles/论文手/references/论文格式规范.md` 新增"国赛排版基线"专节：字体字号对齐体系表（标题黑体三号居中 / 摘 要黑体四号居中 / 一级标题黑体四号居中 / 二三级标题小四加粗顶格 / 正文宋体小四首行缩进 2 字符两端对齐约 1.5 倍行距 / 图题图下五号居中 / 表题表上五号居中 / 公式居中编号右端连续 / 页码页脚居中）、全文文字纯黑纪律、图表编号二选一全篇一致、图宽版心 60~75%、建模部分 0.6~1 幅/页、默认三线表（密集大表可全框线）、正文 4~6 位小数与附录全精度分层、附录版式（索引页+支撑文件清单+语法着色代码）。
+- `tools/docx/scripts/paper_format.py` 默认值与基线对齐：标题 14→16pt（黑体）、摘要标题独立为黑体 14pt、一级标题改黑体 14pt 居中并取消强制另起一页、二级标题改黑体 12pt、正文行距 1.25→1.5 且两端对齐、图题 10→10.5pt、新增 `table_caption()` 与 `page_number_footer()`（页脚居中自动页码）、插图默认宽 12→11cm、CUMCM 篇幅质量目标 15000→9000 字词单位。
+- `tools/docx/scripts/self_check.py` 断言同步更新（一级标题不强制分页、黑体四号居中；二级标题黑体小四）。
+- `references/roles/论文手/references/论文模板.docx` 用更新后的构建基线重生成：国赛八股骨架、摘要独立第一页、页脚居中页码、符号三列三线表。
+- `tools/latex/assets/templates/cumcm/main.tex`：新增 `\ctexset`（一级标题黑体四号居中、中文数字编号、二三级标题小四左对齐）、1.5 倍行距与 2em 首行缩进；章节骨架改为八股（问题重述/问题分析/模型假设/符号说明/模型的建立与求解/模型评价）并附附录三大件注释。
+- `tests/test_paper_format.py` 篇幅断言同步为 9000。
+- 同步至 dsh-plugin 内置知识库。
 
 ## 1.2.0 - 2026-08-10
 

@@ -4,7 +4,7 @@
 
 **面向数学建模竞赛与建模项目的三阶段工作流**
 
-[![Version](https://img.shields.io/badge/version-1.2.0-blue.svg)](VERSION)
+[![Version](https://img.shields.io/badge/version-1.7.0-blue.svg)](VERSION)
 [![Agent Skill](https://img.shields.io/badge/Agent-Skill-4B8BBE.svg)](SKILL.md)
 
 **关注我**
@@ -21,7 +21,7 @@
 
 本 Skill 将数学建模任务拆分为 **建模分析 → 代码实现 → 论文撰写** 三个阶段。既可以按顺序完成整道题，也可以只执行其中一个阶段。
 
-当前版本：[`1.2.0`](VERSION)
+当前版本：[`1.8.5`](VERSION)
 
 > 生成的论文仅供参考。论文结构与格式必须以目标竞赛当届官方规则和官方模板为准。
 
@@ -213,7 +213,7 @@ report = check_matlab_env(["data", "visualization", "optimization"]);
 - **Word**：从官方模板构建，LaTeX 严格转换为原生 OMML 公式，校验篇幅、公式、图表、编号引用、参考文献、DOCX 结构与渲染页数；已有 LaTeX 主稿可用 Pandoc 整篇转换。
 - **LaTeX（可选）**：完整复制官方模板项目并记录哈希，绑定权威代码/图表后真实编译 PDF，校验资源/源码/PDF 哈希、空白页、页面尺寸、字体嵌入与图片 DPI。
 - 没有官方模板时才使用内置构建基线；同时生成两种格式时必须使用相同的数据、图表、公式、参考文献和结论。
-- CUMCM 默认以约 15000 字词单位、约 20 页作为完整度质量目标（非官方要求）；所有竞赛采用相同的至少 8 幅正式图质量基线，每个子问题至少一幅正式结果图。
+- CUMCM 默认以约 9000 字词单位（典型 9,000~15,000，取自近年国一论文实测）、约 20 页作为完整度质量目标（非官方要求，禁止凑字数填充）；所有竞赛采用相同的至少 8 幅正式图质量基线，每个子问题至少一幅正式结果图。
 
 完整流程与门禁见 `tools/docx/SKILL.md`、`tools/latex/SKILL.md`。
 
@@ -284,9 +284,9 @@ python -m compileall -q tools references/roles/编程手/scripts
 
 ## 📋 版本与更新日志
 
-当前版本：[`1.2.0`](VERSION)
+当前版本：[`1.8.5`](VERSION)
 
-`1.2.0` 新增科研可视化工具融合，将 LaTeX 论文改为可选（默认只生成 Word），并重组可视化参考文档。详细内容见 [CHANGELOG.md](CHANGELOG.md)。
+`1.8.5` 合并两位开发者的 v1.80：在双体系合并基础上叠加绘图精美化融合——新增 texture_audit.py 质感门禁（墨色/色盲可分/过小文字）、geometry_kit.py 题意沉浸几何示意图工具箱（路径 D）、第 12 个高阶模板棒棒糖图、setup_style `journal='cumcm'` 国赛质感预设（五号字号阶梯、深色 Okabe-Ito 色环），绘图五条纪律与三脚本审计序（check_figure → texture_audit → figure_audit）；`1.8.0` 绘图双体系合并与导出自检闭环：删除 plot_style.py 旧体系与 dsh-plugin，绘图工具统一收敛到 `tools/figure/scripts/`；export_figure `tight` 默认改 False 保持 figsize 精确尺寸、新增 `preflight` 导出前自动布局+设计自检（FAIL 阻断）；figure_audit 跳过灰度派生图；`1.7.0` 格式排版规则第二轮：修复 display 公式左对齐事故（弃用 oMathPara jc=center+编号同段，改双制表位居中）、图表全文连续编号铁律（禁章节连字符）、凡数学皆公式白名单精确化（坐标/区间/不等号必公式化）、多约束 cases 大括号与多数据呈现纪律（禁逗号堆积）；`1.6.1` 工具链健壮性补丁：equations 补 `\bigcup`/`\bigcap`/`\top` 符号、page_number_footer 幂等化（修双页码）；`1.6.0` 绘图流程升级：新增 tools/schematic 示意图工具（draw.io 可编辑矢量、4 套版式模板、tabler 图标库、布局体检）、tools/figure 11 个高阶数据图模板（Taylor/和弦/云雨/SHAP 组合等，CSV 真实数据契约 + --demo 禁交付）、figure_audit 新增 diagram 类别审计，确立 diagram_qN_* 命名与"示意图只补充不替代数据图"分工纪律；`1.5.0` 论文手第三轮优化（格式排版）：凡数学皆公式（行内公式混排总开关，禁止 Unicode 上下标/下划线冒充）、大公式 display 体系（oMathPara 居中+编号右端、∑/∏ 上下限正上正下、min/max 下极限正下方、算子与中文自动正体、Latin Modern Math 12pt）、表格五律（细三线/单倍行距/双居中/不折行/跨页重复表头/按内容列宽）、代码块 Consolas 着色行号细灰框、正文行距 1.35、参考文献五号悬挂缩进；`1.4.0` 论文手第二轮优化：摘要五要素闭环与 S/A/B/C 分级、深度 AI 痕迹清单与反编造铁律、2026 官方硬约束执行摘要（含附录两声明与匿名性）、2025 最新国赛实测特征（输出文件点名/模型汇总/代码行号/AI 使用详情），新增 aigc_scan.py 辅助扫描；`1.3.0` 以近年国赛国一论文实测为标准重做论文手：摘要改国赛叙事链、主体按问题联动、新增读者模型与机器视角清零、国赛排版基线（字体/图表/附录三大件）、AI 使用合规模块；`1.2.0` 新增科研可视化工具融合，将 LaTeX 论文改为可选（默认只生成 Word），并重组可视化参考文档。详细内容见 [CHANGELOG.md](CHANGELOG.md)。
 
 采用语义化版本 `MAJOR.MINOR.PATCH`：
 

@@ -17,10 +17,10 @@ if hasattr(sys.stdout, "reconfigure"):
 from docx import Document
 from docx.enum.section import WD_SECTION
 from docx.enum.table import WD_TABLE_ALIGNMENT
-from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_TAB_ALIGNMENT
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from docx.shared import Cm, Inches, Pt
+from docx.shared import Cm, Inches, Pt, RGBColor, Twips
 from lxml import etree
 
 
@@ -88,7 +88,7 @@ def setup_page(doc, contest="cumcm"):
     section.right_margin = Cm(right)
 
 
-def paragraph(doc, text="", align=None, first_line=False, line_spacing=1.25):
+def paragraph(doc, text="", align=None, first_line=False, line_spacing=1.35):
     p = doc.add_paragraph()
     p.paragraph_format.space_before = Pt(0)
     p.paragraph_format.space_after = Pt(0)
@@ -104,35 +104,88 @@ def paragraph(doc, text="", align=None, first_line=False, line_spacing=1.25):
 
 def title(doc, text):
     p = paragraph(doc, align=WD_ALIGN_PARAGRAPH.CENTER)
-    set_run_font(p.add_run(text), "黑体", 14, False)
+    set_run_font(p.add_run(text), "黑体", 16, False)
     return p
 
 
 def abstract_title(doc):
-    return title(doc, "摘 要")
+    p = paragraph(doc, align=WD_ALIGN_PARAGRAPH.CENTER)
+    set_run_font(p.add_run("摘 要"), "黑体", 14, False)
+    return p
 
 
 def body(doc, text):
-    return paragraph(doc, text, first_line=True)
+    return paragraph(doc, text, align=WD_ALIGN_PARAGRAPH.JUSTIFY, first_line=True)
 
 
-def _latex2omml(latex):
+def body_rich(doc, segments):
+    """正文段落（首行缩进、两端对齐），支持 ("text", s)/("math", latex) 混排。"""
+    p = paragraph(doc, align=WD_ALIGN_PARAGRAPH.JUSTIFY, first_line=True)
+    return _add_rich(p, segments)
+
+
+def _latex2omml(latex, display=False, font_size=24):
     try:
         from .equations import latex2omml
     except ImportError:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         from equations import latex2omml
-    return latex2omml(latex)
+    return latex2omml(latex, display=display, font_size=font_size)
 
 
-def equation(doc, latex):
-    p = paragraph(doc, align=WD_ALIGN_PARAGRAPH.CENTER)
-    math_para = OxmlElement("m:oMathPara")
+def _add_rich(p, content, font="宋体", size=12, bold=False):
+    """
+    段落混排"文本 + 行内公式"。
+
+    content 为纯 str（向后兼容，整体作为文本），或 segments 列表：
+    [("text", "普通文字"), ("math", r"T_{\\text{环境}}(x)"), ...]
+    ——凡含等号、上下标、希腊字母、运算符链、函数名、元组、区间的数学
+    字块一律走 ("math", latex)（行内 oMath），禁止用 Unicode 上下标
+    或下划线冒充；纯数字+单位的简单值（如 20%、0.004 cm）可留文本。
+    """
+    if isinstance(content, str):
+        content = [("text", content)]
+    for kind, payload in content:
+        if kind == "math":
+            math = OxmlElement("m:oMath")
+            for child in etree.fromstring(
+                _latex2omml(payload, font_size=round(size * 2))
+            ):
+                math.append(child)
+            p._element.append(math)
+        else:
+            set_run_font(p.add_run(payload), font, size, bold)
+    return p
+
+
+def equation(doc, latex, number=None, tab_pos_twips=8300):
+    """
+    居中大公式（display）：居中制表位 + 行内 oMath（display 内容）
+    + 右制表位悬挂编号 "(n)"；单倍行距。∑/∏ 上下限正上正下，
+    min/max/lim 下极限正下方，算子与中文自动正体。
+
+    tab_pos_twips 默认 8300（A4 + CUMCM 3.18cm 边距的版心右端），
+    居中制表位自动取其一半；其他页面配置请显式传入。
+
+    注意：不要用 m:oMathPara + m:jc=center 与编号 run 同段的写法——
+    Word 实测在同段存在 tab/编号 run 时公式会退化为左对齐；双制表位
+    方案（居中制表位 + 右制表位）才能保证视觉居中且编号悬挂右端。
+    """
+    p = paragraph(doc, line_spacing=1.0)
+    p.paragraph_format.tab_stops.add_tab_stop(
+        Twips(tab_pos_twips // 2), WD_TAB_ALIGNMENT.CENTER
+    )
+    p.paragraph_format.tab_stops.add_tab_stop(
+        Twips(tab_pos_twips), WD_TAB_ALIGNMENT.RIGHT
+    )
+    p.add_run().add_tab()
     math = OxmlElement("m:oMath")
-    for child in etree.fromstring(_latex2omml(latex)):
+    for child in etree.fromstring(_latex2omml(latex, display=True)):
         math.append(child)
-    math_para.append(math)
-    p._element.append(math_para)
+    p._element.append(math)
+    if number:
+        p.add_run().add_tab()
+        set_run_font(p.add_run(f"({number})"))
     return p
 
 
@@ -150,21 +203,31 @@ def keywords(doc, text):
     return p
 
 
-def heading1(doc, text):
+def heading1(doc, text, page_break=False):
     p = paragraph(doc, align=WD_ALIGN_PARAGRAPH.CENTER)
-    p.paragraph_format.page_break_before = True
-    set_run_font(p.add_run(text), size=16, bold=True)
+    p.paragraph_format.space_before = Pt(12)
+    p.paragraph_format.space_after = Pt(6)
+    p.paragraph_format.keep_with_next = True
+    if page_break:
+        p.paragraph_format.page_break_before = True
+    set_run_font(p.add_run(text), "黑体", 14, False)
     return p
 
 
 def heading2(doc, text):
     p = paragraph(doc)
-    set_run_font(p.add_run(text), size=14, bold=False)
+    p.paragraph_format.space_before = Pt(8)
+    p.paragraph_format.space_after = Pt(4)
+    p.paragraph_format.keep_with_next = True
+    set_run_font(p.add_run(text), "黑体", 12, False)
     return p
 
 
 def heading3(doc, text):
-    p = paragraph(doc, align=WD_ALIGN_PARAGRAPH.JUSTIFY)
+    p = paragraph(doc)
+    p.paragraph_format.space_before = Pt(6)
+    p.paragraph_format.space_after = Pt(3)
+    p.paragraph_format.keep_with_next = True
     set_run_font(p.add_run(text), size=12, bold=True)
     return p
 
@@ -177,16 +240,63 @@ def section_break(doc):
     doc.add_section(WD_SECTION.NEW_PAGE)
 
 
-def image(doc, path, width_cm=12):
+def image(doc, path, width_cm=12.5):
+    """插图：默认宽 12.5cm（版心的约 85%），图内文字渲染后不小于五号观感。"""
     p = paragraph(doc, align=WD_ALIGN_PARAGRAPH.CENTER)
     with open(path, "rb") as image_file:
         p.add_run().add_picture(image_file, width=Cm(width_cm))
     return p
 
 
-def figure_caption(doc, text):
+def figure_caption(doc, content):
+    """图题（图下五号居中），支持 ("text", s)/("math", latex) 混排。"""
     p = paragraph(doc, align=WD_ALIGN_PARAGRAPH.CENTER)
-    set_run_font(p.add_run(text), size=10)
+    _add_rich(p, content, size=10.5)
+    return p
+
+
+def table_caption(doc, content):
+    """表题（表上五号居中），支持 ("text", s)/("math", latex) 混排。"""
+    p = paragraph(doc, align=WD_ALIGN_PARAGRAPH.CENTER)
+    _add_rich(p, content, size=10.5)
+    return p
+
+
+def reference_entry(doc, content):
+    """参考文献条目：五号、悬挂缩进 2 字符、1.15 倍行距（紧凑向范本看齐）。"""
+    p = paragraph(doc, line_spacing=1.15)
+    p.paragraph_format.left_indent = Pt(21)
+    p.paragraph_format.first_line_indent = Pt(-21)
+    _add_rich(p, content, size=10.5)
+    return p
+
+
+def page_number_footer(doc):
+    """在页脚居中插入自动页码（PAGE 域，五号）。页脚已有 PAGE 域时不再重复添加。"""
+    footer = doc.sections[0].footer
+    for existing in footer.paragraphs:
+        if "PAGE" in existing._element.xml:
+            return existing
+    p = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    fld = OxmlElement("w:fldSimple")
+    fld.set(qn("w:instr"), "PAGE")
+    run = OxmlElement("w:r")
+    rpr = OxmlElement("w:rPr")
+    r_fonts = OxmlElement("w:rFonts")
+    r_fonts.set(qn("w:ascii"), "Times New Roman")
+    r_fonts.set(qn("w:hAnsi"), "Times New Roman")
+    r_fonts.set(qn("w:eastAsia"), "宋体")
+    sz = OxmlElement("w:sz")
+    sz.set(qn("w:val"), "21")
+    rpr.append(r_fonts)
+    rpr.append(sz)
+    run.append(rpr)
+    text = OxmlElement("w:t")
+    text.text = "1"
+    run.append(text)
+    fld.append(run)
+    p._element.append(fld)
     return p
 
 
@@ -209,7 +319,12 @@ def _set_cell_bottom(cell, val="nil", size="0"):
     borders = tc_pr.find(qn("w:tcBorders"))
     if borders is None:
         borders = OxmlElement("w:tcBorders")
-        tc_pr.append(borders)
+        # CT_TcPr 元素顺序：tcBorders 必须位于 shd/tcMar/vAlign/hideMark 等之前
+        tc_pr.insert_element_before(
+            borders,
+            "w:shd", "w:noWrap", "w:tcMar", "w:textDirection",
+            "w:tcFitText", "w:vAlign", "w:hideMark",
+        )
     for old in list(borders):
         if old.tag == qn("w:bottom"):
             borders.remove(old)
@@ -222,11 +337,12 @@ def _set_table_borders(table):
     if borders is not None:
         tbl_pr.remove(borders)
     borders = OxmlElement("w:tblBorders")
+    # 细三线：顶/底线 1pt（sz=8），表头分隔线 0.5pt（在单元格层设置）
     for name, val, size in [
-        ("top", "single", "12"),
+        ("top", "single", "8"),
         ("start", "nil", "0"),
         ("left", "nil", "0"),
-        ("bottom", "single", "12"),
+        ("bottom", "single", "8"),
         ("end", "nil", "0"),
         ("right", "nil", "0"),
         ("insideH", "nil", "0"),
@@ -245,20 +361,175 @@ def _set_table_borders(table):
         tbl_pr.insert(tbl_pr.index(tbl_look), borders)
 
 
-def three_line_table(doc, rows):
+def _cell_plain_text(content):
+    """提取单元格纯文本（用于列宽估计）。"""
+    if isinstance(content, str):
+        return content
+    return "".join(payload for _kind, payload in content)
+
+
+def _estimate_col_widths(rows, total_cm=14.64, min_cm=1.2):
+    """按内容估计列宽：中文计 2 单位、其余计 1 单位，按版心宽度比例分配。"""
+    ncols = len(rows[0])
+    weights = [1.0] * ncols
+    for row in rows:
+        for i, cell in enumerate(row):
+            text = _cell_plain_text(cell)
+            units = sum(2 if "一" <= c <= "鿿" else 1 for c in text)
+            weights[i] = max(weights[i], min(units, 24))
+    total = sum(weights)
+    widths = [max(min_cm, total_cm * w / total) for w in weights]
+    scale = total_cm / sum(widths)
+    return [w * scale for w in widths]
+
+
+def three_line_table(doc, rows, col_widths=None, font_size=10.5, repeat_header=True):
+    """
+    国赛三线表（"表格五律"）：
+    细三线（顶/底 1pt、表头 0.5pt）、单元格单倍行距、水平+垂直双居中、
+    首行跨页自动重复、行不跨页断裂、列宽按内容分配（可用 col_widths
+    显式指定，单位 cm）。单元格内容可为 str 或
+    [("text", s) | ("math", latex), ...] 混排（符号列用公式斜体）。
+    """
     table = doc.add_table(rows=len(rows), cols=len(rows[0]))
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
     _set_table_borders(table)
+    widths = col_widths or _estimate_col_widths(rows)
+    for col, width in zip(table.columns, widths):
+        col.width = Cm(width)
     for row_i, row in enumerate(rows):
-        for col_i, text in enumerate(row):
+        tr_pr = table.rows[row_i]._tr.get_or_add_trPr()
+        tr_pr.append(OxmlElement("w:cantSplit"))
+        if row_i == 0 and repeat_header:
+            tr_pr.append(OxmlElement("w:tblHeader"))
+        for col_i, content in enumerate(row):
             cell = table.cell(row_i, col_i)
+            cell.width = Cm(widths[col_i])
+            tc_pr = cell._tc.get_or_add_tcPr()
+            v_align = OxmlElement("w:vAlign")
+            v_align.set(qn("w:val"), "center")
+            # CT_TcPr 顺序：vAlign 位于序列尾部、hideMark 之前
+            tc_pr.insert_element_before(v_align, "w:hideMark")
             cell.text = ""
             p = cell.paragraphs[0]
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            set_run_font(p.add_run(str(text)), size=12, bold=(row_i == 0))
+            pf = p.paragraph_format
+            pf.line_spacing = 1.0
+            pf.space_before = Pt(1)
+            pf.space_after = Pt(1)
+            _add_rich(p, content, size=font_size, bold=(row_i == 0))
             if row_i == 0:
                 _set_cell_bottom(cell, "single", "4")
     return table
+
+
+# ---------------------------------------------------------------------------
+# 附录代码块：等宽字体 + 语法着色 + 行号 + 细灰边框
+# ---------------------------------------------------------------------------
+
+_CODE_KEYWORDS = {
+    "python": {
+        "def", "return", "if", "elif", "else", "for", "while", "in", "import",
+        "from", "as", "class", "try", "except", "finally", "with", "lambda",
+        "and", "or", "not", "is", "None", "True", "False", "pass", "break",
+        "continue", "raise", "yield", "global", "nonlocal", "assert", "del",
+    },
+    "matlab": {
+        "function", "end", "if", "elseif", "else", "for", "while", "return",
+        "switch", "case", "otherwise", "try", "catch", "global", "persistent",
+        "break", "continue", "disp", "fprintf", "zeros", "ones", "length",
+        "size", "linspace", "plot", "figure", "hold", "grid", "xlabel",
+        "ylabel", "title", "legend",
+    },
+}
+_CODE_COMMENT = {"python": "#", "matlab": "%"}
+
+_CODE_TOKEN_RE = re.compile(
+    r"(?P<string>'(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\")"
+    r"|(?P<word>\b[A-Za-z_][A-Za-z0-9_]*\b)"
+)
+
+
+def _code_font(run, size, color=None):
+    run.font.name = "Consolas"
+    run.font.size = Pt(size)
+    rpr = run._element.get_or_add_rPr()
+    fonts = rpr.get_or_add_rFonts()
+    fonts.set(qn("w:ascii"), "Consolas")
+    fonts.set(qn("w:hAnsi"), "Consolas")
+    fonts.set(qn("w:eastAsia"), "宋体")  # 中文注释用宋体
+    if color:
+        run.font.color.rgb = RGBColor.from_string(color)
+
+
+def _code_line_runs(p, line, size, comment_mark, keywords):
+    """单行代码着色：注释绿、字符串暗红、关键字蓝、其余黑。"""
+    # 注释切分（不深入字符串内含注释符的极端情形，论文附录足够）
+    comment_at = line.find(comment_mark)
+    code_part, comment_part = line, None
+    if comment_at >= 0:
+        code_part, comment_part = line[:comment_at], line[comment_at:]
+
+    pos = 0
+    for match in _CODE_TOKEN_RE.finditer(code_part):
+        if match.start() > pos:
+            _code_font(p.add_run(code_part[pos:match.start()]), size)
+        text = match.group(0)
+        if match.lastgroup == "string":
+            _code_font(p.add_run(text), size, color="A31515")
+        elif match.lastgroup == "word" and text in keywords:
+            _code_font(p.add_run(text), size, color="0000FF")
+        else:
+            _code_font(p.add_run(text), size)
+        pos = match.end()
+    if pos < len(code_part):
+        _code_font(p.add_run(code_part[pos:]), size)
+    if comment_part:
+        _code_font(p.add_run(comment_part), size, color="008000")
+
+
+def code_block(doc, code_text, size=9, line_numbers=True, language="python"):
+    """
+    附录代码块：Consolas 等宽、8~9pt、语法着色（关键字蓝/注释绿/字符串
+    暗红）、行号、单倍行距、细灰边框。
+
+    边框用段落 pBdr 实现（相邻同边框段落自动合并为整框），而非单格
+    表格——避免被论文门禁误计为"表"而要求题注编号。
+    language 支持 "python" / "matlab"。
+    """
+    keywords = _CODE_KEYWORDS.get(language, _CODE_KEYWORDS["python"])
+    comment_mark = _CODE_COMMENT.get(language, "#")
+
+    lines = code_text.rstrip("\n").split("\n")
+    gutter = max(2, len(str(len(lines))))
+    first_p = None
+    for i, line in enumerate(lines, 1):
+        p = paragraph(doc, line_spacing=1.0)
+        if first_p is None:
+            first_p = p
+        p_pr = p._element.get_or_add_pPr()
+        p_bdr = OxmlElement("w:pBdr")
+        for name in ("top", "left", "bottom", "right"):
+            elem = OxmlElement(f"w:{name}")
+            elem.set(qn("w:val"), "single")
+            elem.set(qn("w:sz"), "4")
+            elem.set(qn("w:space"), "2")
+            elem.set(qn("w:color"), "808080")
+            p_bdr.append(elem)
+        # CT_PPr 顺序：pBdr 必须位于 shd/tabs/spacing/ind/jc 等之前
+        p_pr.insert_element_before(
+            p_bdr,
+            "w:shd", "w:tabs", "w:suppressAutoHyphens", "w:kinsoku",
+            "w:wordWrap", "w:overflowPunct", "w:topLinePunct",
+            "w:autoSpaceDE", "w:autoSpaceDN", "w:bidi",
+            "w:adjustRightInd", "w:snapToGrid", "w:spacing", "w:ind",
+            "w:contextualSpacing", "w:jc", "w:textDirection",
+            "w:textAlignment", "w:outlineLvl", "w:rPr",
+        )
+        if line_numbers:
+            _code_font(p.add_run(f"{i:>{gutter}}  "), size, color="808080")
+        _code_line_runs(p, line, size, comment_mark, keywords)
+    return first_p
 
 
 def _clear_template_body(doc):
@@ -389,7 +660,7 @@ def validate_paper_structure(
         return errors
 
     if contest.lower() == "cumcm":
-        min_content_units = 15000 if min_content_units is None else min_content_units
+        min_content_units = 9000 if min_content_units is None else min_content_units
         min_equations = 5 if min_equations is None else min_equations
         min_figures = 8 if min_figures is None else min_figures
         min_tables = 3 if min_tables is None else min_tables

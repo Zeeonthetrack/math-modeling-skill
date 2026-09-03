@@ -104,3 +104,26 @@ def plot_convergence(ax, iterations, values, label='', color='#0072B2',
   多重校正和图注报告契约后添加。
 - 永远不要用 `--demo` 作为稿件交付物。
 - 如果缺少必要的数值数据或非有限值，默认行为是停止。
+
+## 高阶图型模板（scripts/templates/）
+
+12 个真实数据驱动的高阶模板（改造自 mathmodel-figure-templates 技能），统一约定：
+`--data <csv>` 按下表契约读真实数据；`--demo` 用确定性模拟数据出样例（产物带 `_demo` 后缀，
+仅查看模板效果，**不得作为交付物**）；`--out` 指定输出前缀。导出统一走 `export_figure`
+（PDF/SVG/PNG 300 DPI + 灰度预览），真实模式使用 Okabe-Ito 色盲安全色板，统计量全部由
+数据计算。各脚本头部 docstring 有完整的列契约与用法示例。
+
+| 模板 id | 脚本 | 图型 | `--data` CSV 契约 | 可选参数 |
+|---|---|---|---|---|
+| `lollipop-stem` | `make_lollipop_stem.py` | 棒棒糖/火柴杆图（扰动·灵敏度·序列对比，范本图5-8/5-9 同款） | `seq,value`（`label` 可选，≥3 行） | `--baseline`（贯穿基准线）、`--color`、`--value-labels` |
+| `cv-roc-ci` | `make_cv_roc_ci.py` | 交叉验证 ROC + 置信区间 + AUC 汇总表 | 长表 `fold,model,fpr,tpr`（每模型 ≥2 折，端点自动补） | `--metrics`（首行表头、首列 model 的指标表） |
+| `paired-raincloud` | `make_paired_raincloud.py` | 配对云雨图（半小提琴+散点+箱线+均值连线） | `id`（可选）+ 恰好两列数值（列名作条件标签） | `--ylabel`、`--group-label` |
+| `taylor-diagram` | `make_taylor_diagram.py` | 多模型评价泰勒图（std 弧+相关辐条+RMS 等值线） | `model,std,corr`（corr∈[-1,1]） | `rmse` 列、`split` 列（分面板）、`--ref-std` |
+| `multiclass-shap-combo` | `make_multiclass_shap_combo.py` | 多分类 SHAP 柱状+蜂群组合图 | 长表 `class,feature,shap` | `value` 列（蜂群着色） |
+| `correlation-pairgrid` | `make_correlation_pairgrid.py` | 分布+拟合+95%CI+相关系数矩阵组合 | 宽表 ≥3 个数值列（列名即变量） | `--groups`（`column,group`） |
+| `prediction-marginal-grid` | `make_prediction_marginal_grid.py` | 预测-真实散点+双边缘分布（R²/RMSE 由数据算） | `y_true,y_pred` | `group` 列（逐组面板） |
+| `rf-tpe-surface` | `make_rf_tpe_surface.py` | 超参调优 3D 响应曲面 + 最优点标记 | 恰好 3 个数值列（前两列=超参，第三列=目标值） | `--maximize`（目标越大越好） |
+| `grouped-corr-split-violin` | `make_grouped_corr_split_violin.py` | 下三角相关矩阵 + 特征分组半边小提琴 | 对称相关矩阵宽表（首列 feature） | `--groups`（`feature,group`，必需） |
+| `grouped-circular-heatmap` | `make_grouped_circular_heatmap.py` | 分组环形热图（组环+条件环+星号标记） | 矩阵宽表（首列 feature，其余列=条件） | `--groups`（`feature,group`，必需） |
+| `urban-park-cooling-combo` | `make_urban_park_cooling_combo.py` | 堆叠条形+云雨+箱线多面板组合 | 长表 `city,group,metric,value`（每 城市×指标 ≥5 观测） | `--stacked`（首列 city 的计数宽表） |
+| `nature-chord-diagram` | `make_nature_chord_diagram.py` | Nature 风格和弦图（扇区+贝塞尔缘带） | 方阵（首列 category，M[i,j]=i→j 流量） | — |

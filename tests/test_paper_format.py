@@ -68,7 +68,7 @@ class PaperFormatTests(unittest.TestCase):
 
         issues = pf.validate_paper_structure(doc, contest="cumcm")
 
-        for expected in ("15000", "公式", "图", "表", "渲染页数"):
+        for expected in ("9000", "公式", "图", "表", "渲染页数"):
             self.assertTrue(any(expected in issue for issue in issues), expected)
         self.assertTrue(any("低于质量目标 8" in issue for issue in issues))
 
@@ -172,8 +172,74 @@ class PaperFormatTests(unittest.TestCase):
             report = pf.validate_document(path, contest="cumcm", rendered_pages=7)
 
         self.assertFalse(report["passed"])
-        self.assertLess(report["metrics"]["content_units"], 15000)
-        self.assertTrue(any("15000" in issue for issue in report["issues"]))
+        self.assertLess(report["metrics"]["content_units"], 9000)
+        self.assertTrue(any("9000" in issue for issue in report["issues"]))
+
+    def test_three_line_table_five_rules(self):
+        from docx.oxml.ns import qn
+
+        doc = pf.new_document(contest="cumcm")
+        table = pf.three_line_table(doc, [["符号", "说明"], [[("math", r"x_i")], "决策变量"]])
+
+        # 细三线：顶线 1pt（sz=8），表头分隔线 0.5pt（sz=4）
+        borders = table._tbl.tblPr.find(qn("w:tblBorders"))
+        self.assertEqual(borders.find(qn("w:top")).get(qn("w:sz")), "8")
+        self.assertEqual(borders.find(qn("w:bottom")).get(qn("w:sz")), "8")
+        # 首行跨页重复 + 全部行不跨页断裂
+        first_tr_pr = table.rows[0]._tr.find(qn("w:trPr"))
+        self.assertIsNotNone(first_tr_pr.find(qn("w:tblHeader")))
+        for row in table.rows:
+            self.assertIsNotNone(row._tr.find(qn("w:trPr")).find(qn("w:cantSplit")))
+        # 单元格：垂直居中、单倍行距、五号
+        for row in table.rows:
+            for cell in row.cells:
+                self.assertIsNotNone(
+                    cell._tc.find(qn("w:tcPr")).find(qn("w:vAlign"))
+                )
+                for p in cell.paragraphs:
+                    self.assertEqual(p.paragraph_format.line_spacing, 1.0)
+        # 符号列混排公式：单元格内含行内 oMath
+        cell_xml = table.cell(1, 0)._tc
+        self.assertIsNotNone(cell_xml.find(f".//{qn('m:oMath')}"))
+
+    def test_equation_display_centered_with_number(self):
+        from docx.oxml.ns import qn
+        from docx.enum.text import WD_TAB_ALIGNMENT
+
+        doc = pf.new_document(contest="cumcm")
+        pf.equation(doc, r"\min_{\theta} S(\theta)=\sum_{i=1}^{n} x_i", number="1")
+        p = doc.paragraphs[-1]
+        para = p._element
+        # 双制表位方案：居中制表位（版心一半）+ 右制表位（版心右端），
+        # 公式为行内 oMath（display 内容），编号悬挂右端。
+        # 不用 oMathPara+jc=center——与编号同段时 Word 实测退化为左对齐。
+        self.assertIsNone(para.find(qn("m:oMathPara")))
+        stops = p.paragraph_format.tab_stops
+        self.assertEqual(len(stops), 2)
+        self.assertEqual(stops[0].alignment, WD_TAB_ALIGNMENT.CENTER)
+        self.assertEqual(stops[0].position.twips, 4150)
+        self.assertEqual(stops[1].alignment, WD_TAB_ALIGNMENT.RIGHT)
+        self.assertEqual(stops[1].position.twips, 8300)
+        self.assertIsNotNone(para.find(qn("m:oMath")))
+        self.assertIsNotNone(para.find(f".//{qn('m:nary')}"))
+        self.assertIsNotNone(para.find(f".//{qn('m:limLow')}"))
+        self.assertIn("(1)", p.text)
+
+    def test_code_block_is_paragraphs_not_table(self):
+        from docx.oxml.ns import qn
+
+        doc = pf.new_document(contest="cumcm")
+        tables_before = len(doc.tables)
+        pf.code_block(doc, "def f(x):\n    return x  # 注释\n")
+        # 代码块用段落边框实现，不得新增表格（避免门禁误计为"表"）
+        self.assertEqual(len(doc.tables), tables_before)
+        texts = [p.text for p in doc.paragraphs if "def" in p.text]
+        self.assertTrue(texts)
+        run = doc.paragraphs[-2].runs[1]
+        fonts = run._element.get_or_add_rPr().get_or_add_rFonts()
+        self.assertEqual(fonts.get(qn("w:ascii")), "Consolas")
+        # 关键字蓝色
+        self.assertIsNotNone(doc.paragraphs[-2].runs[1].font.color.rgb)
 
 
 if __name__ == "__main__":

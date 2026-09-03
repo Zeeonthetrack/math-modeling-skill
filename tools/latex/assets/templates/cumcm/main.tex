@@ -8,6 +8,24 @@
 \geometry{left=2.5cm,right=2.5cm,top=2.5cm,bottom=2.5cm}
 \newcommand{\keywords}[1]{\par\noindent\textbf{关键词：}#1}
 
+% 国赛排版基线（无官方模板时）：一级标题黑体四号居中、中文数字编号；
+% 二三级标题小四加粗左对齐；正文宋体小四、首行缩进 2 字符、约 1.5 倍行距。
+\ctexset{
+  section = {
+    format = \zihao{4}\heiti\centering,
+    name = {,、},
+    number = \chinese{section},
+  },
+  subsection = {
+    format = \zihao{-4}\heiti\raggedright,
+  },
+  subsubsection = {
+    format = \zihao{-4}\bfseries\raggedright,
+  },
+}
+\linespread{1.3}
+\setlength{\parindent}{2em}
+
 % 这是无官方 LaTeX 模板时的构建基线，不替代当届官方规则。
 \title{LATEX_TEMPLATE_TITLE}
 \author{}
@@ -21,18 +39,32 @@ LATEX_TEMPLATE_ABSTRACT
 \keywords{LATEX_TEMPLATE_KEYWORDS}
 \end{abstract}
 
-\section{问题重述与分析}
+\section{问题重述}
 LATEX_TEMPLATE_BODY
 
-\section{模型假设与符号说明}
+\section{问题分析}
 LATEX_TEMPLATE_BODY
 
-\section{模型建立、求解与验证}
+\section{模型假设}
 LATEX_TEMPLATE_BODY
 
-\section{模型评价与适用边界}
+\section{符号说明}
+LATEX_TEMPLATE_BODY
+
+% 主体章按问题联动：每问一节（模型建立→模型求解→结果与分析），
+% 禁止"先全部建模、再全部求解"两段式；公共底座前置不超过 1.5 页。
+\section{模型的建立与求解}
+LATEX_TEMPLATE_BODY
+
+\section{模型评价}
 LATEX_TEMPLATE_BODY
 
 \bibliographystyle{plain}
 \bibliography{references}
+
+% 附录三大件：索引清单（支撑文件名+功能注释）/ 答案全精度大表 / 按问题分文件核心代码。
+% \appendix
+% \section{支撑材料清单}
+% \section{问题求解答案}
+% \section{程序代码}
 \end{document}

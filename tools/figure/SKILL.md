@@ -33,6 +33,13 @@ description: >-
 **只覆盖纯数据图**：折线、柱状、散点、箱线/小提琴、热力图、误差棒、分布图、相关性矩阵、雷达图、
 3D 曲面、多面板组合。**不做**示意图、流程图、架构图。
 
+**示意图分工**：技术路线图、思路/算法流程图、模型机制示意等结构性图交给 `tools/schematic`
+工具（draw.io 可编辑矢量图，导出 PNG + PDF/SVG）。示意图产物命名 `diagram_qN_*`（全文级
+`diagram_all_*`），审计口径（PNG 与矢量成对、DPI 元数据缺失仅告警）见编程手 `figure_audit.py`
+的 diagram 类别，不计入 raw/process/result 三类图配额。高阶数据图型（云雨图、泰勒图、SHAP
+组合图等）使用本工具 `scripts/templates/` 下的模板脚本，按 `references/api-templates/template_catalog.md`
+的 CSV 数据契约以真实数据出图。
+
 ## 工作流
 
 ### 第 1 步：数据剖析
@@ -86,11 +93,14 @@ python "<SKILL_ROOT>/tools/figure/scripts/profile_data.py" data.csv --group grou
 import sys, os
 sys.path.insert(0, os.path.join(SKILL_ROOT, 'tools', 'figure', 'scripts'))
 from setup_style import setup_style
+setup_style(journal='cumcm', lang='zh')              # 国赛/美赛论文：质感预设（五号字号阶梯、深色色环、刻度朝外）
 setup_style(journal='nature', lang='en')             # 英文 Nature
 setup_style(journal='general', lang='zh', serif_for_zh=True)   # 中文宋体混排
 ```
 
-`SciencePlots` 装了自动用，没装回退到内置预设。
+`SciencePlots` 装了自动用，没装回退到内置预设。**数学建模竞赛论文一律用 `journal='cumcm'`**：
+图宽默认 4.8in（≈12.2cm，A4 版心内不缩放）、刻度 9pt 起、轴标签五号（10.5pt）、
+Okabe-Ito 深色环——直接对标国一论文"字大色深"的观感。
 
 **MATLAB**：将 `references/roles/编程手/scripts/apply_publication_style.m` 复制到 `PROJECT_ROOT/utils/` 后调用。
 
@@ -106,6 +116,17 @@ setup_style(journal='general', lang='zh', serif_for_zh=True)   # 中文宋体混
 **MATLAB**：按 `references/roles/编程手/scripts/apply_publication_style.m` 的出版规范绘制，用 `export_publication_figure()` 导出。
 
 数学建模场景（两种语言均适用）：按三类图体系生成（原始数据图 / 过程图 / 结果图），每类至少 3 张、合计至少 9 张，且每个子问题在三类中各至少 1 张。**每类内部图型要有变化**（如原始数据类至少含 1 张分布图 + 1 张关系图），全文图型种类 ≥ 3 种。
+
+**绘制纪律（五条，违反即返工）**：
+
+1. **一图一脚本**：每张正式图一个独立 `gen_<图名>.py`，与产物同目录，可随时重跑复现；
+2. **单一样式源**：全部脚本统一 `setup_style(journal='cumcm', lang='zh')`（或项目选定的唯一预设），
+   禁止在个别脚本里私自改字号/色板造成全文风格不一；
+3. **数据禁硬编码**：一律从 CSV/JSON 读数，统计量由数据算出；模拟数据只允许在 `--demo` 路径出现；
+4. **图上直标**：阶段名、关键数值、判定分区、显著性标记直接标在图元素旁边
+   （值标签、annotate），不让读者回正文找解释；标注互相遮挡时调位置，不叠字；
+5. **色深字大**：主色用深色（Okabe-Ito 本色，不要自行加 alpha 冲淡），
+   刻度/轴标签在论文实际尺寸下不得小于 9pt / 五号等效。
 
 ### 第 7 步：自检闭环（三层全过）
 
@@ -131,8 +152,11 @@ export_figure(
     size_inches=(3.5, 2.625),
     dpi=300,
     grayscale_preview=True,
+    # tight=False 默认保持 figsize 精确尺寸；preflight=True 默认导出前自检
 )
 ```
+
+> `tight=False` 是默认行为——保持 `size_inches` 精确尺寸，避免插入论文后二次缩放。仅当 `audit_layout` 报告留白异常且无法通过调整布局解决时才显式传 `tight=True`；启用后必须用 `check_figure` 核对实际尺寸。`preflight=True` 默认启用——导出前自动运行 `audit_layout` + `audit_design`，发现 FAIL（缺字/乱码）直接阻断，WARN 打印到 stderr 但不阻断。调试阶段可显式 `preflight=False` 跳过。
 
 **MATLAB**：使用 `export_publication_figure(fig, 'figs/fig1', 'png', 300)` 或 `export_publication_figure(fig, 'figs/fig1', 'svg')`。
 
@@ -140,17 +164,23 @@ export_figure(
 
 ### 第 9 步：文件审计
 
-两个脚本职责不同，按顺序执行：
+三个脚本职责不同，按顺序执行：
 
 ```bash
 # 1. 编程手自检：文件格式/DPI/字体合规（每张图都过）
 python "<SKILL_ROOT>/tools/figure/scripts/check_figure.py" "<PROJECT_ROOT>/figures" --strict
 
-# 2. 数学建模 P2 门禁：三类图数量 + 子问题覆盖（终检时由质检 Subagent 执行）
+# 2. 质感门禁：墨色浓度/主色数/色盲可分/灰度可读/过小文字启发式（每张 PNG 都过）
+python "<SKILL_ROOT>/tools/figure/scripts/texture_audit.py" "<PROJECT_ROOT>/figures/*.png" --strict
+
+# 3. 数学建模 P2 门禁：三类图数量 + 子问题覆盖（终检时由质检 Subagent 执行）
 python "<SKILL_ROOT>/references/roles/编程手/scripts/figure_audit.py" "<PROJECT_ROOT>/figures" --questions q1 q2 ... qN --strict
 ```
 
 - `check_figure.py`：检查单张图的格式合规性（DPI、字体、尺寸、矢量格式），编程手每次导出后自检用。
+- `texture_audit.py`：检查成图观感的可机器化指标——墨色过淡 FAIL、主色超 10 种 WARN、
+  绿色盲模拟下主色不可分 WARN、灰度明度差不足 INFO、疑似过小文字 INFO。
+  FAIL 必须返工，WARN 逐条回应（接受要留理由）。
 - `figure_audit.py`：检查三类图数量是否达标、子问题是否全覆盖，P2 编程终检时由独立质检 Subagent 执行。
 
 ## 主动拦截（顾问职责）
@@ -220,6 +250,7 @@ python "<SKILL_ROOT>/references/roles/编程手/scripts/figure_audit.py" "<PROJE
 ## 依赖
 
 ```
+Python>=3.10           # 模板脚本使用 zip(..., strict=True) 等 3.10+ 语法
 matplotlib>=3.7
 seaborn>=0.13
 plotly>=5.18
@@ -238,8 +269,8 @@ kaleido>=0.2.1         # 可选；plotly 导出
 
 1. **按最终尺寸出图，不二次缩放**——figsize 直接设论文实际尺寸
 2. **矢量优先**——折线/柱状/散点/热力/误差棒 → PDF/SVG，不用 JPEG
-3. **配色对色盲友好**——默认 colorblind 色板 + 冗余编码 + 灰度预览
-4. **字号可读**——正文标签和刻度数字 7-9 pt，最小 ≥ 6 pt
+3. **配色对色盲友好**——默认 colorblind 色板 + 冗余编码 + 灰度预览；主色用深色，不自行加 alpha 冲淡
+4. **字号可读**——竞赛论文（cumcm 预设）刻度 ≥9pt、轴标签五号（10.5pt）等效；期刊图 7-9 pt，最小 ≥ 6 pt
 5. **误差必有交代**——图注必须写清误差类型、样本量 n、检验方法、显著性符号定义
 6. **图型多样**——同一道题的全部图应覆盖 ≥ 3 种不同图型（如折线、柱状、散点、热力图、箱线、直方图、雷达图等），避免全部是柱状图或全部是折线图；每个面板必须回答一个唯一的问题，不得用不同图表形式重复展示相同数据（详见 `design_theory.md` §11 反冗余清单）
 

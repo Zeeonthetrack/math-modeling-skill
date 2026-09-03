@@ -319,7 +319,7 @@ print_report(audit_layout(fig))             # 有缺字 → FAIL，立刻可见
 
 **正确做法**：
 1. **从源头**：v2.1 `setup_style` 默认开 `constrained_layout`，自动给标题/标签留位。
-2. **兜底**：出图后跑 `layout_tools.finalize_figure(fig)`；导出时 `export_figure(..., tight=True)`（默认 `bbox_inches='tight'`）。
+2. **兜底**：出图后跑 `layout_tools.finalize_figure(fig)`；导出时 `export_figure(..., tight=False)`（默认）——保持 figsize 精确尺寸，避免插入论文后二次缩放。仅当 `audit_layout` 报告留白异常且无法通过调整布局解决时才启用 `tight=True`；启用后必须用 `check_figure` 核对实际尺寸。
 3. **图例移出数据区**：
 
 ```python
